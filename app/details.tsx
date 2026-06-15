@@ -1,31 +1,102 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { supabase } from "../lib/supabase";
 
 export default function DetailsScreen() {
   const { id, title, completed, userId } = useLocalSearchParams();
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    checkIfSaved();
+  }, []);
+
+  const checkIfSaved = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from("saved_tasks")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("task_id", String(id))
+        .single();
+
+      if (data) setSaved(true);
+    } catch (e) {
+      console.log("checkIfSaved error:", e);
+    }
+  };
 
   const saveTask = async () => {
+    setLoading(true);
     try {
-      const task = { id, title, completed, userId };
-      await AsyncStorage.setItem(`task_${id}`, JSON.stringify(task));
-      setSaved(true);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        console.log("No user found");
+        setLoading(false);
+        return;
+      }
+
+      console.log("Saving task for user:", user.id);
+
+      const { data, error } = await supabase.from("saved_tasks").insert({
+        user_id: user.id,
+        task_id: String(id),
+        title: String(title),
+        completed: String(completed),
+        task_user_id: String(userId),
+      });
+
+      console.log("Insert result:", data, error);
+
+      if (error) {
+        console.log("Error saving:", error.message);
+      } else {
+        setSaved(true);
+      }
     } catch (e) {
-      console.log("Error saving task", e);
+      console.log("Exception:", e);
     }
+    setLoading(false);
+  };
+
+  const unsaveTask = async () => {
+    setLoading(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      await supabase
+        .from("saved_tasks")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("task_id", String(id));
+
+      setSaved(false);
+    } catch (e) {
+      console.log("unsaveTask error:", e);
+    }
+    setLoading(false);
   };
 
   return (
     <View style={styles.container}>
       <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-        <Text style={styles.backText}>← Back</Text>
+        <Text style={styles.backText}>Back</Text>
       </TouchableOpacity>
 
       <View style={styles.statusBadge}>
         <Text style={styles.statusText}>
-          {completed === "true" ? "✅ Completed" : "⏳ Pending"}
+          {completed === "true" ? "Completed" : "Pending"}
         </Text>
       </View>
 
@@ -36,10 +107,11 @@ export default function DetailsScreen() {
 
       <TouchableOpacity
         style={[styles.saveButton, saved && styles.savedButton]}
-        onPress={saveTask}
+        onPress={saved ? unsaveTask : saveTask}
+        disabled={loading}
       >
         <Text style={styles.saveButtonText}>
-          {saved ? "🔖 Saved!" : "Save Task"}
+          {loading ? "Please wait..." : saved ? "Unsave Task" : "Save Task"}
         </Text>
       </TouchableOpacity>
     </View>
@@ -93,7 +165,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   savedButton: {
-    backgroundColor: "#2e7d32",
+    backgroundColor: "#c62828",
   },
   saveButtonText: {
     color: "#fff",

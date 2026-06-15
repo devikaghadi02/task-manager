@@ -1,5 +1,7 @@
+import { router } from "expo-router";
 import { useRef, useState } from "react";
-import { Animated, StyleSheet, TouchableOpacity } from "react-native";
+import { Animated, StyleSheet, Text, TouchableOpacity } from "react-native";
+import { supabase } from "../../lib/supabase";
 
 export default function SettingsScreen() {
   const [isDark, setIsDark] = useState(false);
@@ -13,6 +15,11 @@ export default function SettingsScreen() {
       useNativeDriver: false,
     }).start();
     setIsDark(!isDark);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.replace("/login");
   };
 
   const backgroundColor = animatedValue.interpolate({
@@ -52,7 +59,6 @@ export default function SettingsScreen() {
         <Animated.Text style={[styles.settingLabel, { color: textColor }]}>
           🌙 Dark Mode
         </Animated.Text>
-
         <TouchableOpacity onPress={toggleDarkMode}>
           <Animated.View
             style={[styles.toggle, { backgroundColor: toggleBackground }]}
@@ -70,6 +76,10 @@ export default function SettingsScreen() {
       <Animated.Text style={[styles.hint, { color: textColor }]}>
         {isDark ? "🌙 Dark mode is on" : "☀️ Light mode is on"}
       </Animated.Text>
+
+      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        <Text style={styles.logoutText}>🚪 Logout</Text>
+      </TouchableOpacity>
     </Animated.View>
   );
 }
@@ -94,7 +104,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   settingLabel: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "600",
   },
   toggle: {
@@ -114,5 +124,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: "center",
     marginTop: 8,
+    marginBottom: 32,
+  },
+  logoutButton: {
+    backgroundColor: "#ffebee",
+    padding: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    marginTop: 16,
+  },
+  logoutText: {
+    color: "#c62828",
+    fontSize: 16,
+    fontWeight: "bold",
   },
 });
