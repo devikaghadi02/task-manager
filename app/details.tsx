@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { cancelTaskReminder } from "../lib/notifications";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/ThemeContext";
 import { getCategoryColor, getUserDisplayName } from "../lib/userHelper";
@@ -216,13 +217,19 @@ export default function DetailsScreen() {
   const toggleCompletion = async () => {
     setLoading(true);
     try {
+      const newCompleted = !isCompleted;
+
       const { error } = await supabase
         .from("tasks")
-        .update({ completed: !isCompleted })
+        .update({ completed: newCompleted })
         .eq("id", String(id));
 
       if (error) throw error;
-      setIsCompleted(!isCompleted);
+
+      if (newCompleted) {
+        await cancelTaskReminder(String(id));
+      }
+      setIsCompleted(newCompleted);
     } catch (e: any) {
       Alert.alert("Error", "Failed to update task status.");
     } finally {
@@ -233,6 +240,8 @@ export default function DetailsScreen() {
   const deleteTask = async () => {
     setLoading(true);
     try {
+      await cancelTaskReminder(String(id));
+
       const { error } = await supabase
         .from("tasks")
         .delete()
@@ -266,23 +275,25 @@ export default function DetailsScreen() {
               <Text style={styles.backText}>Back</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.editButton}
-              onPress={() =>
-                router.push({
-                  pathname: "/create-task",
-                  params: {
-                    id: String(id),
-                    title: taskTitle,
-                    category: taskCategory,
-                    priority: taskPriority || "Medium",
-                    dueDate: taskDueDate,
-                  },
-                })
-              }
-            >
-              <Text style={styles.editButtonText}>Edit</Text>
-            </TouchableOpacity>
+            {!isCompleted && (
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={() =>
+                  router.push({
+                    pathname: "/create-task",
+                    params: {
+                      id: String(id),
+                      title: taskTitle,
+                      category: taskCategory,
+                      priority: taskPriority || "Medium",
+                      dueDate: taskDueDate,
+                    },
+                  })
+                }
+              >
+                <Text style={styles.editButtonText}>Edit</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <View
@@ -391,27 +402,28 @@ export default function DetailsScreen() {
                     : "Mark Complete"}
               </Text>
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.actionButton, styles.deleteButton]}
-              onPress={() => {
-                Alert.alert(
-                  "Delete Task",
-                  "Are you sure you want to delete this task?",
-                  [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                      text: "Delete",
-                      style: "destructive",
-                      onPress: deleteTask,
-                    },
-                  ],
-                );
-              }}
-              disabled={loading}
-            >
-              <Text style={styles.actionButtonText}>Delete Task</Text>
-            </TouchableOpacity>
+            {!isCompleted && (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.deleteButton]}
+                onPress={() => {
+                  Alert.alert(
+                    "Delete Task",
+                    "Are you sure you want to delete this task?",
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      {
+                        text: "Delete",
+                        style: "destructive",
+                        onPress: deleteTask,
+                      },
+                    ],
+                  );
+                }}
+                disabled={loading}
+              >
+                <Text style={styles.actionButtonText}>Delete Task</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.subtasksHeader}>

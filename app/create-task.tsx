@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { scheduleTaskReminder } from "../lib/notifications";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/ThemeContext";
 import { getCategoryColor } from "../lib/userHelper";
@@ -114,15 +115,23 @@ export default function CreateTaskScreen() {
           return;
         }
 
-        const { error: insertError } = await supabase.from("tasks").insert({
-          user_id: user.id,
-          title: title.trim(),
-          category: category.trim() || null,
-          priority,
-          due_date: dueDate.toISOString(),
-        });
+        const { data: newTask, error: insertError } = await supabase
+          .from("tasks")
+          .insert({
+            user_id: user.id,
+            title: title.trim(),
+            category: category.trim() || null,
+            priority,
+            due_date: dueDate.toISOString(),
+          })
+          .select()
+          .single();
 
         if (insertError) throw insertError;
+
+        if (newTask) {
+          await scheduleTaskReminder(newTask.id, newTask.title, dueDate);
+        }
       }
       router.back();
     } catch (err: any) {

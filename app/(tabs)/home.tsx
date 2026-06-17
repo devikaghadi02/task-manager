@@ -126,12 +126,15 @@ export default function HomeScreen() {
     }
   };
 
+  // Home only ever shows PENDING tasks now (.eq("completed", false)).
+  // Completed tasks move to the Saved screen instead.
   const fetchTasks = async (admin: boolean) => {
     try {
       if (admin) {
         const { data: tasksData, error: fetchError } = await supabase
           .from("tasks")
-          .select("*");
+          .select("*")
+          .eq("completed", false);
         if (fetchError) throw fetchError;
 
         const { data: profilesData } = await supabase
@@ -167,6 +170,7 @@ export default function HomeScreen() {
             .from("tasks")
             .select("*")
             .eq("user_id", user.id)
+            .eq("completed", false)
             .order("created_at", { ascending: false });
 
           if (fetchError) throw fetchError;
@@ -200,28 +204,54 @@ export default function HomeScreen() {
     }
   };
 
+  // When a task is marked complete from Home, it must disappear from the
+  // visible list immediately (not just update its `completed` flag in
+  // place), since Home now only shows pending tasks. So instead of mapping
+  // over and flipping the flag in state, we remove the task from local
+  // state entirely once the Supabase update succeeds. If a task is somehow
+  // toggled back to pending here, it simply won't re-appear until next
+  // fetch — which is fine since Home swipe-complete is one-directional UX.
   const toggleComplete = async (task: Task) => {
     try {
+      const newCompleted = !task.completed;
       await supabase
         .from("tasks")
-        .update({ completed: !task.completed })
+        .update({ completed: newCompleted })
         .eq("id", task.id);
 
-      if (isAdmin) {
-        setSections(
-          sections.map((s) => ({
-            ...s,
-            data: s.data.map((t) =>
-              t.id === task.id ? { ...t, completed: !t.completed } : t,
-            ),
-          })),
-        );
+      if (newCompleted) {
+        // Task just got marked complete — remove it from Home's pending list
+        if (isAdmin) {
+          setSections(
+            sections
+              .map((s) => ({
+                ...s,
+                data: s.data.filter((t) => t.id !== task.id),
+              }))
+              .filter((s) => s.data.length > 0),
+          );
+        } else {
+          setTasks(tasks.filter((t) => t.id !== task.id));
+        }
       } else {
-        setTasks(
-          tasks.map((t) =>
-            t.id === task.id ? { ...t, completed: !t.completed } : t,
-          ),
-        );
+        // Toggled back to pending (shouldn't normally happen from Home,
+        // but handled for safety) — just update in place
+        if (isAdmin) {
+          setSections(
+            sections.map((s) => ({
+              ...s,
+              data: s.data.map((t) =>
+                t.id === task.id ? { ...t, completed: false } : t,
+              ),
+            })),
+          );
+        } else {
+          setTasks(
+            tasks.map((t) =>
+              t.id === task.id ? { ...t, completed: false } : t,
+            ),
+          );
+        }
       }
     } catch (e) {
       console.log("Error toggling task:", e);
