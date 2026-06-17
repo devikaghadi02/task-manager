@@ -42,6 +42,6 @@ export default function TabsLayout() {
   );
 }
 
-function TabIcon({ symbol }: { symbol: string }) {
+function TabIcon({ symbol, color }: { symbol: string; color?: string }) {
   return <Text style={{ fontSize: 20 }}>{symbol}</Text>;
 }

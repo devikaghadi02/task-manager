@@ -1,36 +1,33 @@
 import { router } from "expo-router";
-import { useRef, useState } from "react";
-import { Animated, StyleSheet, Text, TouchableOpacity } from "react-native";
+import { useRef } from "react";
+import {
+  Animated,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { supabase } from "../../lib/supabase";
+import { useTheme } from "../../lib/ThemeContext";
 
 export default function SettingsScreen() {
-  const [isDark, setIsDark] = useState(false);
-  const animatedValue = useRef(new Animated.Value(0)).current;
+  const { isDark, toggleDark, colors } = useTheme();
+  const animatedValue = useRef(new Animated.Value(isDark ? 1 : 0)).current;
 
-  const toggleDarkMode = () => {
+  const handleToggle = () => {
     const toValue = isDark ? 0 : 1;
     Animated.timing(animatedValue, {
       toValue,
       duration: 400,
       useNativeDriver: false,
     }).start();
-    setIsDark(!isDark);
+    toggleDark();
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.replace("/login");
   };
-
-  const backgroundColor = animatedValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["#ffffff", "#121212"],
-  });
-
-  const textColor = animatedValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["#333333", "#ffffff"],
-  });
 
   const toggleBackground = animatedValue.interpolate({
     inputRange: [0, 1],
@@ -43,23 +40,24 @@ export default function SettingsScreen() {
   });
 
   return (
-    <Animated.View style={[styles.container, { backgroundColor }]}>
-      <Animated.Text style={[styles.title, { color: textColor }]}>
-        ⚙️ Settings
-      </Animated.Text>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <Text style={[styles.title, { color: colors.text }]}>Settings</Text>
 
-      <Animated.View
-        style={[
-          styles.card,
-          {
-            backgroundColor: isDark ? "#1e1e1e" : "#f5f5f5",
-          },
-        ]}
+      <TouchableOpacity
+        style={[styles.card, { backgroundColor: colors.card }]}
+        onPress={() => router.push("/profile")}
       >
-        <Animated.Text style={[styles.settingLabel, { color: textColor }]}>
-          🌙 Dark Mode
-        </Animated.Text>
-        <TouchableOpacity onPress={toggleDarkMode}>
+        <Text style={[styles.settingLabel, { color: colors.text }]}>
+          Profile
+        </Text>
+        <Text style={[styles.chevron, { color: colors.subtext }]}>›</Text>
+      </TouchableOpacity>
+
+      <View style={[styles.card, { backgroundColor: colors.card }]}>
+        <Text style={[styles.settingLabel, { color: colors.text }]}>
+          Dark Mode
+        </Text>
+        <TouchableOpacity onPress={handleToggle}>
           <Animated.View
             style={[styles.toggle, { backgroundColor: toggleBackground }]}
           >
@@ -71,16 +69,16 @@ export default function SettingsScreen() {
             />
           </Animated.View>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
 
-      <Animated.Text style={[styles.hint, { color: textColor }]}>
-        {isDark ? "🌙 Dark mode is on" : "☀️ Light mode is on"}
-      </Animated.Text>
+      <Text style={[styles.hint, { color: colors.subtext }]}>
+        {isDark ? "Dark mode is on" : "Light mode is on"}
+      </Text>
 
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Text style={styles.logoutText}>🚪 Logout</Text>
+        <Text style={styles.logoutText}>Logout</Text>
       </TouchableOpacity>
-    </Animated.View>
+    </View>
   );
 }
 
@@ -105,6 +103,10 @@ const styles = StyleSheet.create({
   },
   settingLabel: {
     fontSize: 16,
+    fontWeight: "600",
+  },
+  chevron: {
+    fontSize: 22,
     fontWeight: "600",
   },
   toggle: {

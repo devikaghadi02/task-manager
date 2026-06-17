@@ -1,4 +1,4 @@
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   FlatList,
@@ -8,142 +8,146 @@ import {
   View,
 } from "react-native";
 import { supabase } from "../../lib/supabase";
+import { useTheme } from "../../lib/ThemeContext";
 
-type SavedTask = {
-  id: number;
-  task_id: string;
+type Task = {
+  id: string;
   title: string;
-  completed: string;
-  task_user_id: string;
+  completed: boolean;
   user_id: string;
+  due_date: string | null;
+  priority: string;
+  category: string | null;
 };
 
 export default function SavedScreen() {
-  const [savedTasks, setSavedTasks] = useState<SavedTask[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
+  const { colors } = useTheme();
 
   useFocusEffect(
     useCallback(() => {
-      loadSavedTasks();
+      loadCompletedTasks();
     }, []),
   );
 
-  const loadSavedTasks = async () => {
+  const loadCompletedTasks = async () => {
     setLoading(true);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
 
-    const admin = user.email === "admin@test.com";
-    setIsAdmin(admin);
+      const admin = user.email === "admin@test.com";
+      setIsAdmin(admin);
 
-    let query = supabase.from("saved_tasks").select("*");
+      let query = supabase.from("tasks").select("*").eq("completed", true);
 
-    if (!admin) {
-      query = query.eq("user_id", user.id);
-    }
+      if (!admin) {
+        query = query.eq("user_id", user.id);
+      }
 
-    const { data, error } = await query;
-    if (!error && data) {
-      setSavedTasks(data);
+      const { data, error } = await query;
+      if (!error && data) {
+        setTasks(data as Task[]);
+      }
+    } catch (e) {
+      console.log("Error loading completed tasks:", e);
     }
     setLoading(false);
   };
 
-  const deleteTask = async (taskId: string, userId: string) => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
-
-    if (isAdmin) {
-      await supabase
-        .from("saved_tasks")
-        .delete()
-        .eq("task_id", taskId)
-        .eq("user_id", userId);
-    } else {
-      await supabase
-        .from("saved_tasks")
-        .delete()
-        .eq("task_id", taskId)
-        .eq("user_id", user.id);
-    }
-    loadSavedTasks();
-  };
-
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.loadingText}>Loading...</Text>
+      <View style={[styles.centered, { backgroundColor: colors.background }]}>
+        <Text style={[styles.loadingText, { color: colors.subtext }]}>
+          Loading...
+        </Text>
       </View>
     );
   }
 
-  if (savedTasks.length === 0) {
+  if (tasks.length === 0) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.emptyText}>No saved tasks yet!</Text>
-        <Text style={styles.emptySubtext}>
+      <View style={[styles.centered, { backgroundColor: colors.background }]}>
+        <Text style={[styles.emptyText, { color: colors.text }]}>
+          No completed tasks yet!
+        </Text>
+        <Text style={[styles.emptySubtext, { color: colors.subtext }]}>
           {isAdmin
-            ? "No users have saved any tasks"
-            : "Go to Home and save some tasks"}
+            ? "No users have completed any tasks"
+            : "Complete some tasks to see them here"}
         </Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
-        <Text style={styles.title}>Saved Tasks</Text>
-        <View style={[isAdmin ? styles.adminBadge : styles.userBadge]}>
-          <Text
-            style={[isAdmin ? styles.adminBadgeText : styles.userBadgeText]}
-          >
+        <Text style={[styles.title, { color: colors.text }]}>Completed</Text>
+        <View style={isAdmin ? styles.adminBadge : styles.userBadge}>
+          <Text style={isAdmin ? styles.adminBadgeText : styles.userBadgeText}>
             {isAdmin ? "Admin" : "User"}
           </Text>
         </View>
       </View>
 
-      {isAdmin && (
-        <Text style={styles.subtitle}>
-          All users saved tasks ({savedTasks.length})
-        </Text>
-      )}
+      <Text style={[styles.subtitle, { color: colors.subtext }]}>
+        {tasks.length} completed tasks
+      </Text>
 
       <FlatList
-        data={savedTasks}
-        keyExtractor={(item) => item.id.toString()}
+        data={tasks}
+        keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <View style={styles.card}>
+          <TouchableOpacity
+            style={[styles.card, { backgroundColor: colors.card }]}
+            onPress={() =>
+              router.push(
+                `/details?id=${item.id}&title=${item.title}&completed=${item.completed}&userId=${item.user_id}&dueDate=${item.due_date || ""}&priority=${item.priority}&category=${item.category || ""}`,
+              )
+            }
+          >
             <View style={styles.cardRow}>
-              <View
-                style={[
-                  styles.statusDot,
-                  item.completed === "true"
-                    ? styles.dotCompleted
-                    : styles.dotPending,
-                ]}
-              />
+              <View style={styles.dotCompleted} />
               <View style={styles.cardText}>
-                <Text style={styles.taskTitle} numberOfLines={2}>
+                <Text
+                  style={[styles.taskTitle, { color: colors.text }]}
+                  numberOfLines={2}
+                >
                   {item.title}
                 </Text>
-                <Text style={styles.taskMeta}>
-                  Task #{item.task_id} • User #{item.task_user_id}
-                  {isAdmin ? ` • Saved by ${item.user_id.slice(0, 8)}...` : ""}
-                </Text>
+                <View style={styles.metaRow}>
+                  {item.category && (
+                    <Text style={[styles.taskMeta, { color: colors.subtext }]}>
+                      {item.category}
+                    </Text>
+                  )}
+                  {item.due_date && (
+                    <Text style={[styles.taskMeta, { color: colors.subtext }]}>
+                      {" "}
+                      • Due: {new Date(item.due_date).toLocaleDateString()}
+                    </Text>
+                  )}
+                </View>
               </View>
-              <TouchableOpacity
-                onPress={() => deleteTask(item.task_id, item.user_id)}
+              <View
+                style={[
+                  styles.priorityBadge,
+                  item.priority === "High"
+                    ? styles.highPriority
+                    : item.priority === "Low"
+                      ? styles.lowPriority
+                      : styles.mediumPriority,
+                ]}
               >
-                <Text style={styles.delete}>Remove</Text>
-              </TouchableOpacity>
+                <Text style={styles.priorityText}>{item.priority}</Text>
+              </View>
             </View>
-          </View>
+          </TouchableOpacity>
         )}
       />
     </View>
@@ -153,7 +157,6 @@ export default function SavedScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f5f5",
     paddingTop: 60,
     paddingHorizontal: 16,
   },
@@ -174,7 +177,6 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 13,
-    color: "#888",
     marginBottom: 16,
   },
   adminBadge: {
@@ -201,22 +203,18 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 16,
-    color: "#888",
   },
   emptyText: {
     fontSize: 20,
     fontWeight: "bold",
-    color: "#333",
     marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 14,
-    color: "#888",
     textAlign: "center",
     paddingHorizontal: 32,
   },
   card: {
-    backgroundColor: "#fff",
     padding: 16,
     borderRadius: 12,
     marginBottom: 12,
@@ -226,17 +224,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  statusDot: {
+  dotCompleted: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    marginRight: 10,
-  },
-  dotCompleted: {
     backgroundColor: "#2e7d32",
-  },
-  dotPending: {
-    backgroundColor: "#f9a825",
+    marginRight: 10,
   },
   cardText: {
     flex: 1,
@@ -244,17 +237,32 @@ const styles = StyleSheet.create({
   taskTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#333",
+  },
+  metaRow: {
+    flexDirection: "row",
+    marginTop: 4,
   },
   taskMeta: {
     fontSize: 12,
-    color: "#888",
-    marginTop: 2,
   },
-  delete: {
-    fontSize: 13,
-    color: "#c62828",
-    fontWeight: "600",
+  priorityBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
     marginLeft: 8,
+  },
+  highPriority: {
+    backgroundColor: "#ffebee",
+  },
+  mediumPriority: {
+    backgroundColor: "#fff3e0",
+  },
+  lowPriority: {
+    backgroundColor: "#e8f5e9",
+  },
+  priorityText: {
+    fontSize: 10,
+    fontWeight: "bold",
+    color: "#555",
   },
 });
