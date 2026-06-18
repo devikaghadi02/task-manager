@@ -10,7 +10,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { cancelTaskReminder } from "../lib/notifications";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/ThemeContext";
 import { getCategoryColor, getUserDisplayName } from "../lib/userHelper";
@@ -31,6 +30,21 @@ function formatDueDate(value: unknown): string | null {
   return parsed.toLocaleDateString();
 }
 
+// Created/completed timestamps benefit from showing time as well as date,
+// since "when was this assigned" is more meaningful with a time attached
+// (unlike due date, which is usually just a day).
+function formatDateTime(value: unknown): string | null {
+  if (!value) return null;
+  const str = String(value);
+  if (str === "" || str === "undefined" || str === "null") return null;
+  const parsed = new Date(str);
+  if (isNaN(parsed.getTime())) return null;
+  return `${parsed.toLocaleDateString()} ${parsed.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+}
+
 export default function DetailsScreen() {
   const params = useLocalSearchParams();
   const id = params.id ? String(params.id) : "";
@@ -45,6 +59,9 @@ export default function DetailsScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+  const [notes, setNotes] = useState(params.notes ? String(params.notes) : "");
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [notesSaved, setNotesSaved] = useState(true);
 
   // Task fields as local state, seeded from the initial route params but
   // refreshed from Supabase whenever this screen regains focus (e.g. after
@@ -62,6 +79,10 @@ export default function DetailsScreen() {
   const [taskCategory, setTaskCategory] = useState(
     params.category ? String(params.category) : "",
   );
+  // These aren't passed as route params from the task list, so they start
+  // empty and get filled in once refetchTask runs on mount/focus.
+  const [taskCreatedAt, setTaskCreatedAt] = useState("");
+  const [taskCompletedAt, setTaskCompletedAt] = useState<string | null>(null);
 
   const refetchTask = useCallback(async () => {
     if (!id) return;
@@ -78,6 +99,9 @@ export default function DetailsScreen() {
         setTaskPriority(data.priority ?? "");
         setTaskCategory(data.category ?? "");
         setIsCompleted(!!data.completed);
+        setNotes(data.notes ?? "");
+        setTaskCreatedAt(data.created_at ?? "");
+        setTaskCompletedAt(data.completed_at ?? null);
       }
     } catch (e) {
       console.log("Error refetching task:", e);
@@ -171,6 +195,20 @@ export default function DetailsScreen() {
     }
   };
 
+  const saveNotes = async () => {
+    setSavingNotes(true);
+    try {
+      const { error } = await supabase
+        .from("tasks")
+        .update({ notes })
+        .eq("id", String(id));
+
+      if (!error) setNotesSaved(true);
+    } catch (e) {
+      console.log("Error saving notes:", e);
+    }
+    setSavingNotes(false);
+  };
   const deleteSubtask = async (subtaskId: string) => {
     try {
       await supabase.from("subtasks").delete().eq("id", subtaskId);
@@ -217,19 +255,17 @@ export default function DetailsScreen() {
   const toggleCompletion = async () => {
     setLoading(true);
     try {
-      const newCompleted = !isCompleted;
+      const nowCompleted = !isCompleted;
+      const newCompletedAt = nowCompleted ? new Date().toISOString() : null;
 
       const { error } = await supabase
         .from("tasks")
-        .update({ completed: newCompleted })
+        .update({ completed: nowCompleted, completed_at: newCompletedAt })
         .eq("id", String(id));
 
       if (error) throw error;
-
-      if (newCompleted) {
-        await cancelTaskReminder(String(id));
-      }
-      setIsCompleted(newCompleted);
+      setIsCompleted(nowCompleted);
+      setTaskCompletedAt(newCompletedAt);
     } catch (e: any) {
       Alert.alert("Error", "Failed to update task status.");
     } finally {
@@ -240,8 +276,6 @@ export default function DetailsScreen() {
   const deleteTask = async () => {
     setLoading(true);
     try {
-      await cancelTaskReminder(String(id));
-
       const { error } = await supabase
         .from("tasks")
         .delete()
@@ -258,6 +292,15 @@ export default function DetailsScreen() {
   const categoryColor = getCategoryColor(taskCategory || null);
   const completedSubtasks = subtasks.filter((s) => s.completed).length;
   const formattedDueDate = formatDueDate(taskDueDate);
+  const formattedCreatedAt = formatDateTime(taskCreatedAt);
+  const formattedCompletedAt = isCompleted
+    ? formatDateTime(taskCompletedAt)
+    : null;
+  const isOverdue =
+    !isCompleted &&
+    !!taskDueDate &&
+    !isNaN(new Date(taskDueDate).getTime()) &&
+    new Date(taskDueDate).getTime() < Date.now();
 
   return (
     <FlatList
@@ -275,25 +318,23 @@ export default function DetailsScreen() {
               <Text style={styles.backText}>Back</Text>
             </TouchableOpacity>
 
-            {!isCompleted && (
-              <TouchableOpacity
-                style={styles.editButton}
-                onPress={() =>
-                  router.push({
-                    pathname: "/create-task",
-                    params: {
-                      id: String(id),
-                      title: taskTitle,
-                      category: taskCategory,
-                      priority: taskPriority || "Medium",
-                      dueDate: taskDueDate,
-                    },
-                  })
-                }
-              >
-                <Text style={styles.editButtonText}>Edit</Text>
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              style={styles.editButton}
+              onPress={() =>
+                router.push({
+                  pathname: "/create-task",
+                  params: {
+                    id: String(id),
+                    title: taskTitle,
+                    category: taskCategory,
+                    priority: taskPriority || "Medium",
+                    dueDate: taskDueDate,
+                  },
+                })
+              }
+            >
+              <Text style={styles.editButtonText}>Edit</Text>
+            </TouchableOpacity>
           </View>
 
           <View
@@ -316,20 +357,72 @@ export default function DetailsScreen() {
             {taskTitle}
           </Text>
 
+          <View style={[styles.timelineCard, { backgroundColor: colors.card }]}>
+            <View style={styles.timelineRow}>
+              <View style={styles.timelineStop}>
+                <View style={[styles.timelineDot, styles.timelineDotCreated]} />
+                <Text style={[styles.timelineLabel, { color: colors.subtext }]}>
+                  Created
+                </Text>
+                <Text style={[styles.timelineValue, { color: colors.text }]}>
+                  {formattedCreatedAt || "—"}
+                </Text>
+              </View>
+
+              <View
+                style={[
+                  styles.timelineConnector,
+                  { backgroundColor: colors.border },
+                ]}
+              />
+
+              <View style={styles.timelineStop}>
+                <View
+                  style={[
+                    styles.timelineDot,
+                    isOverdue
+                      ? styles.timelineDotOverdue
+                      : styles.timelineDotDue,
+                  ]}
+                />
+                <Text style={[styles.timelineLabel, { color: colors.subtext }]}>
+                  Due
+                </Text>
+                <Text style={[styles.timelineValue, { color: colors.text }]}>
+                  {formattedDueDate || "—"}
+                </Text>
+              </View>
+
+              <View
+                style={[
+                  styles.timelineConnector,
+                  { backgroundColor: colors.border },
+                ]}
+              />
+
+              <View style={styles.timelineStop}>
+                <View
+                  style={[
+                    styles.timelineDot,
+                    formattedCompletedAt
+                      ? styles.timelineDotCompleted
+                      : styles.timelineDotEmpty,
+                    { borderColor: colors.border },
+                  ]}
+                />
+                <Text style={[styles.timelineLabel, { color: colors.subtext }]}>
+                  Completed
+                </Text>
+                <Text style={[styles.timelineValue, { color: colors.text }]}>
+                  {formattedCompletedAt || "—"}
+                </Text>
+              </View>
+            </View>
+          </View>
+
           <View
             style={[styles.metaContainer, { backgroundColor: colors.card }]}
           >
-            {formattedDueDate ? (
-              <View style={styles.metaRow}>
-                <Text style={[styles.metaLabel, { color: colors.subtext }]}>
-                  Due Date
-                </Text>
-                <Text style={[styles.metaValue, { color: colors.text }]}>
-                  {formattedDueDate}
-                </Text>
-              </View>
-            ) : null}
-
             {taskPriority ? (
               <View style={styles.metaRow}>
                 <Text style={[styles.metaLabel, { color: colors.subtext }]}>
@@ -402,28 +495,27 @@ export default function DetailsScreen() {
                     : "Mark Complete"}
               </Text>
             </TouchableOpacity>
-            {!isCompleted && (
-              <TouchableOpacity
-                style={[styles.actionButton, styles.deleteButton]}
-                onPress={() => {
-                  Alert.alert(
-                    "Delete Task",
-                    "Are you sure you want to delete this task?",
-                    [
-                      { text: "Cancel", style: "cancel" },
-                      {
-                        text: "Delete",
-                        style: "destructive",
-                        onPress: deleteTask,
-                      },
-                    ],
-                  );
-                }}
-                disabled={loading}
-              >
-                <Text style={styles.actionButtonText}>Delete Task</Text>
-              </TouchableOpacity>
-            )}
+
+            <TouchableOpacity
+              style={[styles.actionButton, styles.deleteButton]}
+              onPress={() => {
+                Alert.alert(
+                  "Delete Task",
+                  "Are you sure you want to delete this task?",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Delete",
+                      style: "destructive",
+                      onPress: deleteTask,
+                    },
+                  ],
+                );
+              }}
+              disabled={loading}
+            >
+              <Text style={styles.actionButtonText}>Delete Task</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.subtasksHeader}>
@@ -528,6 +620,43 @@ export default function DetailsScreen() {
           No subtasks yet. Add one above!
         </Text>
       }
+      ListFooterComponent={
+        <View style={styles.notesSection}>
+          <View style={styles.notesHeader}>
+            <Text style={[styles.notesTitle, { color: colors.text }]}>
+              Notes
+            </Text>
+            {!notesSaved && (
+              <TouchableOpacity onPress={saveNotes} disabled={savingNotes}>
+                <Text style={styles.notesSaveLink}>
+                  {savingNotes ? "Saving..." : "Save"}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <TextInput
+            style={[
+              styles.notesInput,
+              {
+                backgroundColor: colors.card,
+                color: colors.text,
+                borderColor: colors.border,
+              },
+            ]}
+            placeholder="Add notes about this task..."
+            placeholderTextColor={colors.subtext}
+            value={notes}
+            onChangeText={(text) => {
+              setNotes(text);
+              setNotesSaved(false);
+            }}
+            onBlur={saveNotes}
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
+          />
+        </View>
+      }
     />
   );
 }
@@ -574,6 +703,56 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginBottom: 16,
     lineHeight: 30,
+  },
+  timelineCard: {
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+    elevation: 1,
+  },
+  timelineRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  timelineStop: {
+    flex: 1,
+    alignItems: "center",
+  },
+  timelineConnector: {
+    height: 1.5,
+    flex: 0.4,
+    marginTop: 5,
+  },
+  timelineDot: {
+    width: 11,
+    height: 11,
+    borderRadius: 5.5,
+    marginBottom: 6,
+  },
+  timelineDotCreated: {
+    backgroundColor: "#9e9e9e",
+  },
+  timelineDotDue: {
+    backgroundColor: "#1976d2",
+  },
+  timelineDotOverdue: {
+    backgroundColor: "#c62828",
+  },
+  timelineDotCompleted: {
+    backgroundColor: "#2e7d32",
+  },
+  timelineDotEmpty: {
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+  },
+  timelineLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  timelineValue: {
+    fontSize: 11,
+    textAlign: "center",
   },
   metaContainer: {
     padding: 16,
@@ -761,5 +940,30 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 14,
     marginTop: 8,
+  },
+  notesSection: {
+    marginTop: 8,
+  },
+  notesHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  notesTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  notesSaveLink: {
+    color: "#6200ee",
+    fontWeight: "bold",
+    fontSize: 13,
+  },
+  notesInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 14,
+    minHeight: 100,
   },
 });

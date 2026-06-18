@@ -126,15 +126,12 @@ export default function HomeScreen() {
     }
   };
 
-  // Home only ever shows PENDING tasks now (.eq("completed", false)).
-  // Completed tasks move to the Saved screen instead.
   const fetchTasks = async (admin: boolean) => {
     try {
       if (admin) {
         const { data: tasksData, error: fetchError } = await supabase
           .from("tasks")
-          .select("*")
-          .eq("completed", false);
+          .select("*");
         if (fetchError) throw fetchError;
 
         const { data: profilesData } = await supabase
@@ -170,7 +167,6 @@ export default function HomeScreen() {
             .from("tasks")
             .select("*")
             .eq("user_id", user.id)
-            .eq("completed", false)
             .order("created_at", { ascending: false });
 
           if (fetchError) throw fetchError;
@@ -204,54 +200,32 @@ export default function HomeScreen() {
     }
   };
 
-  // When a task is marked complete from Home, it must disappear from the
-  // visible list immediately (not just update its `completed` flag in
-  // place), since Home now only shows pending tasks. So instead of mapping
-  // over and flipping the flag in state, we remove the task from local
-  // state entirely once the Supabase update succeeds. If a task is somehow
-  // toggled back to pending here, it simply won't re-appear until next
-  // fetch — which is fine since Home swipe-complete is one-directional UX.
   const toggleComplete = async (task: Task) => {
     try {
-      const newCompleted = !task.completed;
+      const nowCompleted = !task.completed;
       await supabase
         .from("tasks")
-        .update({ completed: newCompleted })
+        .update({
+          completed: nowCompleted,
+          completed_at: nowCompleted ? new Date().toISOString() : null,
+        })
         .eq("id", task.id);
 
-      if (newCompleted) {
-        // Task just got marked complete — remove it from Home's pending list
-        if (isAdmin) {
-          setSections(
-            sections
-              .map((s) => ({
-                ...s,
-                data: s.data.filter((t) => t.id !== task.id),
-              }))
-              .filter((s) => s.data.length > 0),
-          );
-        } else {
-          setTasks(tasks.filter((t) => t.id !== task.id));
-        }
-      } else {
-        // Toggled back to pending (shouldn't normally happen from Home,
-        // but handled for safety) — just update in place
-        if (isAdmin) {
-          setSections(
-            sections.map((s) => ({
-              ...s,
-              data: s.data.map((t) =>
-                t.id === task.id ? { ...t, completed: false } : t,
-              ),
-            })),
-          );
-        } else {
-          setTasks(
-            tasks.map((t) =>
-              t.id === task.id ? { ...t, completed: false } : t,
+      if (isAdmin) {
+        setSections(
+          sections.map((s) => ({
+            ...s,
+            data: s.data.map((t) =>
+              t.id === task.id ? { ...t, completed: !t.completed } : t,
             ),
-          );
-        }
+          })),
+        );
+      } else {
+        setTasks(
+          tasks.map((t) =>
+            t.id === task.id ? { ...t, completed: !t.completed } : t,
+          ),
+        );
       }
     } catch (e) {
       console.log("Error toggling task:", e);
@@ -481,8 +455,16 @@ export default function HomeScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.header}>
           <Text style={[styles.title, { color: colors.text }]}>Tasks</Text>
-          <View style={styles.adminBadge}>
-            <Text style={styles.adminBadgeText}>Admin</Text>
+          <View style={styles.headerRight}>
+            <TouchableOpacity
+              style={styles.timelineButton}
+              onPress={() => router.push("/timeline")}
+            >
+              <Text style={styles.timelineButtonText}>Timeline</Text>
+            </TouchableOpacity>
+            <View style={styles.adminBadge}>
+              <Text style={styles.adminBadgeText}>Admin</Text>
+            </View>
           </View>
         </View>
 
@@ -530,8 +512,16 @@ export default function HomeScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.text }]}>My Tasks</Text>
-        <View style={styles.userBadge}>
-          <Text style={styles.userBadgeText}>User</Text>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={styles.timelineButton}
+            onPress={() => router.push("/timeline")}
+          >
+            <Text style={styles.timelineButtonText}>Timeline</Text>
+          </TouchableOpacity>
+          <View style={styles.userBadge}>
+            <Text style={styles.userBadgeText}>User</Text>
+          </View>
         </View>
       </View>
 
@@ -635,6 +625,23 @@ const styles = StyleSheet.create({
   chipTextSelected: {
     color: "#fff",
     fontWeight: "bold",
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  timelineButton: {
+    borderWidth: 1,
+    borderColor: "#6200ee",
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    marginRight: 8,
+  },
+  timelineButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6200ee",
   },
   adminBadge: {
     backgroundColor: "#fff3e0",
