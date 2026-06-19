@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import ProgressRing from "../../components/ProgressRing";
 import SwipeableTask from "../../components/SwipeableTask";
 import { supabase } from "../../lib/supabase";
 import { useTheme } from "../../lib/ThemeContext";
@@ -104,6 +105,14 @@ export default function HomeScreen() {
   const [selectedPriority, setSelectedPriority] = useState("All");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<"dueDate" | "priority" | "created">(
+    "dueDate",
+  );
+
+  // Overall completion stats (ALL tasks — completed AND pending), used
+  // only to drive the header progress ring. Kept separate from `tasks` /
+  // `sections`, which now only ever hold PENDING tasks for the list.
+  const [overallStats, setOverallStats] = useState({ total: 0, completed: 0 });
 
   useEffect(() => {
     getCurrentUser();
@@ -118,6 +127,7 @@ export default function HomeScreen() {
         const admin = user.email === "admin@test.com";
         setIsAdmin(admin);
         fetchTasks(admin);
+        fetchOverallStats(admin);
       } else {
         setLoading(false);
       }
@@ -126,12 +136,40 @@ export default function HomeScreen() {
     }
   };
 
+  // Lightweight query — only pulls the `completed` column, across ALL
+  // tasks (no completed filter here, unlike fetchTasks below). This is
+  // what feeds the header progress ring's real percentage.
+  const fetchOverallStats = async (admin: boolean) => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const query = supabase.from("tasks").select("completed");
+      const { data, error } = admin
+        ? await query
+        : await query.eq("user_id", user.id);
+
+      if (error) throw error;
+      if (data) {
+        const completed = data.filter((t) => t.completed).length;
+        setOverallStats({ total: data.length, completed });
+      }
+    } catch (e) {
+      console.log("Error fetching overall stats:", e);
+    }
+  };
+
+  // Home only ever shows PENDING tasks (.eq("completed", false)).
+  // Completed tasks move to the Saved screen instead.
   const fetchTasks = async (admin: boolean) => {
     try {
       if (admin) {
         const { data: tasksData, error: fetchError } = await supabase
           .from("tasks")
-          .select("*");
+          .select("*")
+          .eq("completed", false);
         if (fetchError) throw fetchError;
 
         const { data: profilesData } = await supabase
@@ -167,6 +205,7 @@ export default function HomeScreen() {
             .from("tasks")
             .select("*")
             .eq("user_id", user.id)
+            .eq("completed", false)
             .order("created_at", { ascending: false });
 
           if (fetchError) throw fetchError;
@@ -195,11 +234,15 @@ export default function HomeScreen() {
       } else {
         setTasks(tasks.filter((t) => t.id !== taskId));
       }
+      fetchOverallStats(isAdmin);
     } catch (e) {
       console.log("Error deleting task:", e);
     }
   };
 
+  // When a task is marked complete from Home, it must disappear from the
+  // visible list immediately — Home only loads pending tasks, so we
+  // remove it from local state outright once the Supabase update succeeds.
   const toggleComplete = async (task: Task) => {
     try {
       const nowCompleted = !task.completed;
@@ -211,22 +254,39 @@ export default function HomeScreen() {
         })
         .eq("id", task.id);
 
-      if (isAdmin) {
-        setSections(
-          sections.map((s) => ({
-            ...s,
-            data: s.data.map((t) =>
-              t.id === task.id ? { ...t, completed: !t.completed } : t,
-            ),
-          })),
-        );
+      if (nowCompleted) {
+        if (isAdmin) {
+          setSections(
+            sections
+              .map((s) => ({
+                ...s,
+                data: s.data.filter((t) => t.id !== task.id),
+              }))
+              .filter((s) => s.data.length > 0),
+          );
+        } else {
+          setTasks(tasks.filter((t) => t.id !== task.id));
+        }
       } else {
-        setTasks(
-          tasks.map((t) =>
-            t.id === task.id ? { ...t, completed: !t.completed } : t,
-          ),
-        );
+        if (isAdmin) {
+          setSections(
+            sections.map((s) => ({
+              ...s,
+              data: s.data.map((t) =>
+                t.id === task.id ? { ...t, completed: false } : t,
+              ),
+            })),
+          );
+        } else {
+          setTasks(
+            tasks.map((t) =>
+              t.id === task.id ? { ...t, completed: false } : t,
+            ),
+          );
+        }
       }
+      // Keep the header progress ring in sync with the real change
+      fetchOverallStats(isAdmin);
     } catch (e) {
       console.log("Error toggling task:", e);
     }
@@ -238,6 +298,34 @@ export default function HomeScreen() {
       .map((t) => t.category)
       .filter((c): c is string => !!c);
     return ["All", ...Array.from(new Set(cats))];
+  }, [tasks, sections, isAdmin]);
+
+  // Derived from overallStats (ALL tasks, completed + pending) instead of
+  // the pending-only `tasks`/`sections` state — gives the ring a true
+  // overall completion percentage matching what Profile shows.
+  const progressStats = useMemo(() => {
+    const percentage =
+      overallStats.total > 0
+        ? (overallStats.completed / overallStats.total) * 100
+        : 0;
+    return {
+      total: overallStats.total,
+      completed: overallStats.completed,
+      percentage,
+    };
+  }, [overallStats]);
+
+  const dueSoonTasks = useMemo(() => {
+    const allTasks = isAdmin ? sections.flatMap((s) => s.data) : tasks;
+    const now = Date.now();
+    const in48Hours = now + 48 * 60 * 60 * 1000;
+
+    return allTasks.filter((t) => {
+      if (!t.due_date || t.completed) return false;
+      const dueTime = new Date(t.due_date).getTime();
+      if (isNaN(dueTime)) return false;
+      return dueTime >= now && dueTime <= in48Hours;
+    });
   }, [tasks, sections, isAdmin]);
 
   const filterTask = useCallback(
@@ -258,9 +346,35 @@ export default function HomeScreen() {
     [searchText, selectedStatus, selectedPriority, selectedCategory],
   );
 
+  const PRIORITY_RANK: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
+
+  const sortTasks = useCallback(
+    (taskList: Task[]) => {
+      const copy = [...taskList];
+      if (sortBy === "dueDate") {
+        copy.sort((a, b) => {
+          if (!a.due_date && !b.due_date) return 0;
+          if (!a.due_date) return 1;
+          if (!b.due_date) return -1;
+          return (
+            new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
+          );
+        });
+      } else if (sortBy === "priority") {
+        copy.sort(
+          (a, b) =>
+            (PRIORITY_RANK[a.priority] ?? 3) - (PRIORITY_RANK[b.priority] ?? 3),
+        );
+      }
+      // "created" needs no re-sort — tasks already arrive newest-first from the query
+      return copy;
+    },
+    [sortBy],
+  );
+
   const filteredTasks = useMemo(
-    () => tasks.filter(filterTask),
-    [tasks, filterTask],
+    () => sortTasks(tasks.filter(filterTask)),
+    [tasks, filterTask, sortTasks],
   );
 
   const filteredSections = useMemo(
@@ -268,10 +382,10 @@ export default function HomeScreen() {
       sections
         .map((section) => ({
           ...section,
-          data: section.data.filter(filterTask),
+          data: sortTasks(section.data.filter(filterTask)),
         }))
         .filter((section) => section.data.length > 0),
-    [sections, filterTask],
+    [sections, filterTask, sortTasks],
   );
 
   const hasActiveFilters =
@@ -315,6 +429,30 @@ export default function HomeScreen() {
             {filtersOpen ? "Hide" : "Filters"}
           </Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.filterToggle,
+            { borderColor: colors.border, marginLeft: 8 },
+          ]}
+          onPress={() => {
+            const order: Array<"dueDate" | "priority" | "created"> = [
+              "dueDate",
+              "priority",
+              "created",
+            ];
+            const nextIndex = (order.indexOf(sortBy) + 1) % order.length;
+            setSortBy(order[nextIndex]);
+          }}
+        >
+          <Text style={styles.filterToggleText}>
+            Sort:{" "}
+            {sortBy === "dueDate"
+              ? "Due"
+              : sortBy === "priority"
+                ? "Priority"
+                : "New"}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {filtersOpen && (
@@ -342,6 +480,54 @@ export default function HomeScreen() {
       )}
     </>
   );
+
+  const DueSoonBanner = () =>
+    dueSoonTasks.length > 0 ? (
+      <View
+        style={[
+          styles.dueSoonBanner,
+          { backgroundColor: colors.card, borderColor: "#f9a825" },
+        ]}
+      >
+        <Text style={styles.dueSoonTitle}>
+          ⏰ {dueSoonTasks.length} task{dueSoonTasks.length > 1 ? "s" : ""} due
+          soon
+        </Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {dueSoonTasks.map((t) => (
+            <TouchableOpacity
+              key={t.id}
+              style={styles.dueSoonChip}
+              onPress={() =>
+                router.push({
+                  pathname: "/details",
+                  params: {
+                    id: t.id,
+                    title: t.title,
+                    completed: String(t.completed),
+                    userId: t.user_id,
+                    dueDate: t.due_date || "",
+                    priority: t.priority,
+                    category: t.category || "",
+                  },
+                })
+              }
+            >
+              <Text style={styles.dueSoonChipText} numberOfLines={1}>
+                {t.title}
+              </Text>
+              <Text style={styles.dueSoonChipDate}>
+                {new Date(t.due_date!).toLocaleDateString([], {
+                  weekday: "short",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    ) : null;
 
   const TaskCard = ({ item }: { item: Task }) => (
     <SwipeableTask
@@ -457,6 +643,16 @@ export default function HomeScreen() {
           <Text style={[styles.title, { color: colors.text }]}>Tasks</Text>
           <View style={styles.headerRight}>
             <TouchableOpacity
+              style={styles.progressRingWrap}
+              onPress={() => router.push("/profile")}
+            >
+              <ProgressRing
+                percentage={progressStats.percentage}
+                size={36}
+                strokeWidth={3.5}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
               style={styles.timelineButton}
               onPress={() => router.push("/timeline")}
             >
@@ -469,6 +665,7 @@ export default function HomeScreen() {
         </View>
 
         {SearchAndFilters}
+        <DueSoonBanner />
 
         <SectionList
           sections={filteredSections}
@@ -514,6 +711,16 @@ export default function HomeScreen() {
         <Text style={[styles.title, { color: colors.text }]}>My Tasks</Text>
         <View style={styles.headerRight}>
           <TouchableOpacity
+            style={styles.progressRingWrap}
+            onPress={() => router.push("/profile")}
+          >
+            <ProgressRing
+              percentage={progressStats.percentage}
+              size={36}
+              strokeWidth={3.5}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
             style={styles.timelineButton}
             onPress={() => router.push("/timeline")}
           >
@@ -526,6 +733,7 @@ export default function HomeScreen() {
       </View>
 
       {SearchAndFilters}
+      <DueSoonBanner />
 
       <FlatList
         data={filteredTasks}
@@ -629,6 +837,9 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
+  },
+  progressRingWrap: {
+    marginRight: 10,
   },
   timelineButton: {
     borderWidth: 1,
@@ -803,5 +1014,35 @@ const styles = StyleSheet.create({
     fontSize: 32,
     color: "#fff",
     lineHeight: 34,
+  },
+  dueSoonBanner: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+  },
+  dueSoonTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#e65100",
+    marginBottom: 8,
+  },
+  dueSoonChip: {
+    backgroundColor: "#fff3e0",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginRight: 8,
+    maxWidth: 140,
+  },
+  dueSoonChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "e65100",
+  },
+  dueSoonChipDate: {
+    fontSize: 10,
+    color: "e65100",
+    marginTop: 2,
   },
 });

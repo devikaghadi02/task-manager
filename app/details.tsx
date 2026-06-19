@@ -30,9 +30,6 @@ function formatDueDate(value: unknown): string | null {
   return parsed.toLocaleDateString();
 }
 
-// Created/completed timestamps benefit from showing time as well as date,
-// since "when was this assigned" is more meaningful with a time attached
-// (unlike due date, which is usually just a day).
 function formatDateTime(value: unknown): string | null {
   if (!value) return null;
   const str = String(value);
@@ -63,10 +60,6 @@ export default function DetailsScreen() {
   const [savingNotes, setSavingNotes] = useState(false);
   const [notesSaved, setNotesSaved] = useState(true);
 
-  // Task fields as local state, seeded from the initial route params but
-  // refreshed from Supabase whenever this screen regains focus (e.g. after
-  // returning from the Edit screen), so saved changes show up immediately
-  // instead of waiting for params to be passed again from the task list.
   const [taskTitle, setTaskTitle] = useState(
     params.title ? String(params.title) : "",
   );
@@ -79,8 +72,6 @@ export default function DetailsScreen() {
   const [taskCategory, setTaskCategory] = useState(
     params.category ? String(params.category) : "",
   );
-  // These aren't passed as route params from the task list, so they start
-  // empty and get filled in once refetchTask runs on mount/focus.
   const [taskCreatedAt, setTaskCreatedAt] = useState("");
   const [taskCompletedAt, setTaskCompletedAt] = useState<string | null>(null);
 
@@ -102,6 +93,8 @@ export default function DetailsScreen() {
         setNotes(data.notes ?? "");
         setTaskCreatedAt(data.created_at ?? "");
         setTaskCompletedAt(data.completed_at ?? null);
+      } else if (error) {
+        console.log("Error refetching task:", error);
       }
     } catch (e) {
       console.log("Error refetching task:", e);
@@ -198,17 +191,32 @@ export default function DetailsScreen() {
   const saveNotes = async () => {
     setSavingNotes(true);
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("tasks")
         .update({ notes })
-        .eq("id", String(id));
+        .eq("id", String(id))
+        .select();
 
-      if (!error) setNotesSaved(true);
+      if (error) {
+        console.log("Error saving notes:", error);
+        Alert.alert("Error", `Failed to save notes: ${error.message}`);
+      } else if (!data || data.length === 0) {
+        console.log("Notes update affected 0 rows.", { id, notes });
+        Alert.alert(
+          "Not Saved",
+          "No matching task row was updated. This usually points to a permissions (RLS) or id mismatch.",
+        );
+      } else {
+        console.log("Notes saved successfully:", data[0]);
+        setNotesSaved(true);
+      }
     } catch (e) {
       console.log("Error saving notes:", e);
+      Alert.alert("Error", "Something went wrong saving your notes.");
     }
     setSavingNotes(false);
   };
+
   const deleteSubtask = async (subtaskId: string) => {
     try {
       await supabase.from("subtasks").delete().eq("id", subtaskId);
@@ -318,23 +326,25 @@ export default function DetailsScreen() {
               <Text style={styles.backText}>Back</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.editButton}
-              onPress={() =>
-                router.push({
-                  pathname: "/create-task",
-                  params: {
-                    id: String(id),
-                    title: taskTitle,
-                    category: taskCategory,
-                    priority: taskPriority || "Medium",
-                    dueDate: taskDueDate,
-                  },
-                })
-              }
-            >
-              <Text style={styles.editButtonText}>Edit</Text>
-            </TouchableOpacity>
+            {!isCompleted && (
+              <TouchableOpacity
+                style={styles.editButton}
+                onPress={() =>
+                  router.push({
+                    pathname: "/create-task",
+                    params: {
+                      id: String(id),
+                      title: taskTitle,
+                      category: taskCategory,
+                      priority: taskPriority || "Medium",
+                      dueDate: taskDueDate,
+                    },
+                  })
+                }
+              >
+                <Text style={styles.editButtonText}>Edit</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <View
@@ -496,26 +506,28 @@ export default function DetailsScreen() {
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.actionButton, styles.deleteButton]}
-              onPress={() => {
-                Alert.alert(
-                  "Delete Task",
-                  "Are you sure you want to delete this task?",
-                  [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                      text: "Delete",
-                      style: "destructive",
-                      onPress: deleteTask,
-                    },
-                  ],
-                );
-              }}
-              disabled={loading}
-            >
-              <Text style={styles.actionButtonText}>Delete Task</Text>
-            </TouchableOpacity>
+            {!isCompleted && (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.deleteButton]}
+                onPress={() => {
+                  Alert.alert(
+                    "Delete Task",
+                    "Are you sure you want to delete this task?",
+                    [
+                      { text: "Cancel", style: "cancel" },
+                      {
+                        text: "Delete",
+                        style: "destructive",
+                        onPress: deleteTask,
+                      },
+                    ],
+                  );
+                }}
+                disabled={loading}
+              >
+                <Text style={styles.actionButtonText}>Delete Task</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.subtasksHeader}>
