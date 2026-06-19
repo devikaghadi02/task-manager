@@ -2,6 +2,7 @@ import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   ScrollView,
   SectionList,
@@ -109,10 +110,10 @@ export default function HomeScreen() {
     "dueDate",
   );
 
-  // Overall completion stats (ALL tasks — completed AND pending), used
-  // only to drive the header progress ring. Kept separate from `tasks` /
-  // `sections`, which now only ever hold PENDING tasks for the list.
   const [overallStats, setOverallStats] = useState({ total: 0, completed: 0 });
+
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     getCurrentUser();
@@ -136,9 +137,6 @@ export default function HomeScreen() {
     }
   };
 
-  // Lightweight query — only pulls the `completed` column, across ALL
-  // tasks (no completed filter here, unlike fetchTasks below). This is
-  // what feeds the header progress ring's real percentage.
   const fetchOverallStats = async (admin: boolean) => {
     try {
       const {
@@ -161,8 +159,6 @@ export default function HomeScreen() {
     }
   };
 
-  // Home only ever shows PENDING tasks (.eq("completed", false)).
-  // Completed tasks move to the Saved screen instead.
   const fetchTasks = async (admin: boolean) => {
     try {
       if (admin) {
@@ -240,9 +236,6 @@ export default function HomeScreen() {
     }
   };
 
-  // When a task is marked complete from Home, it must disappear from the
-  // visible list immediately — Home only loads pending tasks, so we
-  // remove it from local state outright once the Supabase update succeeds.
   const toggleComplete = async (task: Task) => {
     try {
       const nowCompleted = !task.completed;
@@ -285,10 +278,80 @@ export default function HomeScreen() {
           );
         }
       }
-      // Keep the header progress ring in sync with the real change
       fetchOverallStats(isAdmin);
     } catch (e) {
       console.log("Error toggling task:", e);
+    }
+  };
+
+  // --- Multi-select bulk action helpers ---
+  const enterSelectionMode = (taskId: string) => {
+    setSelectionMode(true);
+    setSelectedIds(new Set([taskId]));
+  };
+
+  const toggleSelection = (taskId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  };
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const bulkDelete = async () => {
+    try {
+      await supabase.from("tasks").delete().in("id", Array.from(selectedIds));
+      if (isAdmin) {
+        setSections(
+          sections
+            .map((s) => ({
+              ...s,
+              data: s.data.filter((t) => !selectedIds.has(t.id)),
+            }))
+            .filter((s) => s.data.length > 0),
+        );
+      } else {
+        setTasks(tasks.filter((t) => !selectedIds.has(t.id)));
+      }
+      fetchOverallStats(isAdmin);
+      exitSelectionMode();
+    } catch (e) {
+      console.log("Error bulk deleting:", e);
+    }
+  };
+
+  const bulkComplete = async () => {
+    try {
+      await supabase
+        .from("tasks")
+        .update({ completed: true, completed_at: new Date().toISOString() })
+        .in("id", Array.from(selectedIds));
+
+      if (isAdmin) {
+        setSections(
+          sections
+            .map((s) => ({
+              ...s,
+              data: s.data.filter((t) => !selectedIds.has(t.id)),
+            }))
+            .filter((s) => s.data.length > 0),
+        );
+      } else {
+        setTasks(tasks.filter((t) => !selectedIds.has(t.id)));
+      }
+      fetchOverallStats(isAdmin);
+      exitSelectionMode();
+    } catch (e) {
+      console.log("Error bulk completing:", e);
     }
   };
 
@@ -300,9 +363,6 @@ export default function HomeScreen() {
     return ["All", ...Array.from(new Set(cats))];
   }, [tasks, sections, isAdmin]);
 
-  // Derived from overallStats (ALL tasks, completed + pending) instead of
-  // the pending-only `tasks`/`sections` state — gives the ring a true
-  // overall completion percentage matching what Profile shows.
   const progressStats = useMemo(() => {
     const percentage =
       overallStats.total > 0
@@ -366,7 +426,6 @@ export default function HomeScreen() {
             (PRIORITY_RANK[a.priority] ?? 3) - (PRIORITY_RANK[b.priority] ?? 3),
         );
       }
-      // "created" needs no re-sort — tasks already arrive newest-first from the query
       return copy;
     },
     [sortBy],
@@ -529,30 +588,87 @@ export default function HomeScreen() {
       </View>
     ) : null;
 
-  const TaskCard = ({ item }: { item: Task }) => (
-    <SwipeableTask
-      onDelete={() => deleteTask(item.id)}
-      onToggleComplete={() => toggleComplete(item)}
-      isCompleted={item.completed}
-    >
+  const SelectionBar = () =>
+    selectionMode ? (
+      <View style={styles.selectionBar}>
+        <Text style={styles.selectionCount}>{selectedIds.size} selected</Text>
+        <View style={styles.selectionActions}>
+          <TouchableOpacity
+            style={styles.selectionActionButton}
+            onPress={bulkComplete}
+            disabled={selectedIds.size === 0}
+          >
+            <Text style={styles.selectionActionText}>Complete</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.selectionActionButton}
+            onPress={() => {
+              Alert.alert(
+                "Delete Tasks",
+                `Delete ${selectedIds.size} task${selectedIds.size > 1 ? "s" : ""}?`,
+                [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Delete", style: "destructive", onPress: bulkDelete },
+                ],
+              );
+            }}
+            disabled={selectedIds.size === 0}
+          >
+            <Text style={styles.selectionActionText}>Delete</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.selectionActionButton}
+            onPress={exitSelectionMode}
+          >
+            <Text style={styles.selectionActionText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    ) : null;
+
+  const TaskCard = ({ item }: { item: Task }) => {
+    const isSelected = selectedIds.has(item.id);
+
+    const cardContent = (
       <TouchableOpacity
-        style={[styles.card, { backgroundColor: colors.card }]}
-        onPress={() =>
-          router.push({
-            pathname: "/details",
-            params: {
-              id: item.id,
-              title: item.title,
-              completed: String(item.completed),
-              userId: item.user_id,
-              dueDate: item.due_date || "",
-              priority: item.priority,
-              category: item.category || "",
-            },
-          })
-        }
+        style={[
+          styles.card,
+          { backgroundColor: colors.card },
+          isSelected && styles.cardSelected,
+        ]}
+        onPress={() => {
+          if (selectionMode) {
+            toggleSelection(item.id);
+          } else {
+            router.push({
+              pathname: "/details",
+              params: {
+                id: item.id,
+                title: item.title,
+                completed: String(item.completed),
+                userId: item.user_id,
+                dueDate: item.due_date || "",
+                priority: item.priority,
+                category: item.category || "",
+              },
+            });
+          }
+        }}
+        onLongPress={() => {
+          if (!selectionMode) enterSelectionMode(item.id);
+        }}
       >
         <View style={styles.cardRow}>
+          {selectionMode && (
+            <View
+              style={[
+                styles.selectCircle,
+                isSelected && styles.selectCircleChecked,
+              ]}
+            >
+              {isSelected && <Text style={styles.selectCheckmark}>✓</Text>}
+            </View>
+          )}
           <View
             style={[
               styles.statusDot,
@@ -614,8 +730,22 @@ export default function HomeScreen() {
           )}
         </View>
       </TouchableOpacity>
-    </SwipeableTask>
-  );
+    );
+
+    if (selectionMode) {
+      return cardContent;
+    }
+
+    return (
+      <SwipeableTask
+        onDelete={() => deleteTask(item.id)}
+        onToggleComplete={() => toggleComplete(item)}
+        isCompleted={item.completed}
+      >
+        {cardContent}
+      </SwipeableTask>
+    );
+  };
 
   if (loading) {
     return (
@@ -665,6 +795,7 @@ export default function HomeScreen() {
         </View>
 
         {SearchAndFilters}
+        <SelectionBar />
         <DueSoonBanner />
 
         <SectionList
@@ -733,6 +864,7 @@ export default function HomeScreen() {
       </View>
 
       {SearchAndFilters}
+      <SelectionBar />
       <DueSoonBanner />
 
       <FlatList
@@ -1038,11 +1170,62 @@ const styles = StyleSheet.create({
   dueSoonChipText: {
     fontSize: 12,
     fontWeight: "600",
-    color: "e65100",
+    color: "#e65100",
   },
   dueSoonChipDate: {
     fontSize: 10,
-    color: "e65100",
+    color: "#e65100",
     marginTop: 2,
+  },
+  cardSelected: {
+    borderWidth: 2,
+    borderColor: "#6200ee",
+  },
+  selectCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: "#6200ee",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
+  },
+  selectCircleChecked: {
+    backgroundColor: "#6200ee",
+  },
+  selectCheckmark: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "bold",
+  },
+  selectionBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#6200ee",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  selectionCount: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  selectionActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  selectionActionButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginLeft: 6,
+  },
+  selectionActionText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 13,
   },
 });
