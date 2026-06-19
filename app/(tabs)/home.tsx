@@ -1,19 +1,20 @@
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  ScrollView,
-  SectionList,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    ScrollView,
+    SectionList,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import ProgressRing from "../../components/ProgressRing";
 import SwipeableTask from "../../components/SwipeableTask";
+import ReorderableTaskList from "../../components/ReorderableTaskList";
 import { supabase } from "../../lib/supabase";
 import { useTheme } from "../../lib/ThemeContext";
 import { getCategoryColor, getUserDisplayName } from "../../lib/userHelper";
@@ -26,6 +27,7 @@ type Task = {
   due_date: string | null;
   priority: string;
   category: string | null;
+  task_order?: number;
 };
 
 type Section = {
@@ -281,6 +283,25 @@ export default function HomeScreen() {
       fetchOverallStats(isAdmin);
     } catch (e) {
       console.log("Error toggling task:", e);
+    }
+  };
+
+  const reorderTasks = async (reorderedTasks: Task[]) => {
+    try {
+      // Update order in database
+      for (let i = 0; i < reorderedTasks.length; i++) {
+        await supabase
+          .from("tasks")
+          .update({ task_order: i })
+          .eq("id", reorderedTasks[i].id);
+      }
+
+      // Update local state
+      if (!isAdmin) {
+        setTasks(reorderedTasks);
+      }
+    } catch (e) {
+      console.log("Error reordering tasks:", e);
     }
   };
 
@@ -867,17 +888,25 @@ export default function HomeScreen() {
       <SelectionBar />
       <DueSoonBanner />
 
-      <FlatList
-        data={filteredTasks}
-        keyExtractor={(item) => item.id}
-        keyboardShouldPersistTaps="always"
-        renderItem={({ item }) => <TaskCard item={item} />}
-        ListEmptyComponent={
-          <Text style={[styles.emptyText, { color: colors.subtext }]}>
-            No tasks match your filters
-          </Text>
-        }
-      />
+      {selectionMode ? (
+        <FlatList
+          data={filteredTasks}
+          keyExtractor={(item) => item.id}
+          keyboardShouldPersistTaps="always"
+          renderItem={({ item }) => <TaskCard item={item} />}
+          ListEmptyComponent={
+            <Text style={[styles.emptyText, { color: colors.subtext }]}>
+              No tasks match your filters
+            </Text>
+          }
+        />
+      ) : (
+        <ReorderableTaskList
+          tasks={filteredTasks}
+          renderItem={(item) => <TaskCard item={item} />}
+          onReorder={reorderTasks}
+        />
+      )}
 
       <TouchableOpacity
         style={styles.fab}
