@@ -401,6 +401,49 @@ export default function DetailsScreen() {
     }
   };
 
+  const saveAsTemplate = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Save the template
+      const { data: template, error: templateError } = await supabase
+        .from("templates")
+        .insert({
+          user_id: user.id,
+          title: taskTitle,
+          priority: taskPriority || "Medium",
+          category: taskCategory || null,
+        })
+        .select()
+        .single();
+
+      if (templateError) throw templateError;
+
+      // Save subtasks if any exist
+      if (subtasks.length > 0) {
+        const templateSubtasks = subtasks.map((s, i) => ({
+          template_id: template.id,
+          title: s.title,
+          position: i,
+        }));
+
+        const { error: subtasksError } = await supabase
+          .from("template_subtasks")
+          .insert(templateSubtasks);
+
+        if (subtasksError) throw subtasksError;
+      }
+
+      Alert.alert("Template Saved", `"${taskTitle}" saved as a template!`);
+    } catch (e: any) {
+      console.log("Error saving template:", e);
+      Alert.alert("Error", "Failed to save template.");
+    }
+  };
+
   const categoryColor = getCategoryColor(taskCategory || null);
   const completedSubtasks = subtasks.filter((s) => s.completed).length;
   const formattedDueDate = formatDueDate(taskDueDate);
@@ -514,25 +557,34 @@ export default function DetailsScreen() {
                 <Text style={styles.backText}>Back</Text>
               </TouchableOpacity>
 
-              {!isCompleted && (
+              <View style={styles.headerActions}>
                 <TouchableOpacity
-                  style={styles.editButton}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/create-task",
-                      params: {
-                        id: String(id),
-                        title: taskTitle,
-                        category: taskCategory,
-                        priority: taskPriority || "Medium",
-                        dueDate: taskDueDate,
-                      },
-                    })
-                  }
+                  style={styles.templateButton}
+                  onPress={saveAsTemplate}
                 >
-                  <Text style={styles.editButtonText}>Edit</Text>
+                  <Text style={styles.templateButtonText}>Save Template</Text>
                 </TouchableOpacity>
-              )}
+
+                {!isCompleted && (
+                  <TouchableOpacity
+                    style={styles.editButton}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/create-task",
+                        params: {
+                          id: String(id),
+                          title: taskTitle,
+                          category: taskCategory,
+                          priority: taskPriority || "Medium",
+                          dueDate: taskDueDate,
+                        },
+                      })
+                    }
+                  >
+                    <Text style={styles.editButtonText}>Edit</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
 
             <View
@@ -1171,5 +1223,18 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 14,
     minHeight: 100,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  templateButton: {
+    paddingHorizontal: 4,
+  },
+  templateButtonText: {
+    fontSize: 14,
+    color: "#6200ee",
+    fontWeight: "600",
   },
 });

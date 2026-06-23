@@ -3,6 +3,8 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  FlatList,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -24,6 +26,14 @@ const SUGGESTED_CATEGORIES = [
   "Education",
   "Urgent",
 ];
+
+type Template = {
+  id: string;
+  title: string;
+  priority: string;
+  category: string | null;
+  template_subtasks: { id: string; title: string; position: number }[];
+};
 
 export default function CreateTaskScreen() {
   const params = useLocalSearchParams();
@@ -50,10 +60,12 @@ export default function CreateTaskScreen() {
   const [error, setError] = useState("");
   const { colors } = useTheme();
 
-  // Re-sync form fields whenever the params change. Without this, if the
-  // create-task screen is already mounted from a previous visit, useState's
-  // initial values won't update and you'd see stale data (e.g. "New Task"
-  // label or an old/garbled due date when opening Edit for a different task).
+  // Template picker state
+  const [templateModalVisible, setTemplateModalVisible] = useState(false);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState("");
+
   useEffect(() => {
     setTitle(params.title ? String(params.title) : "");
     setCategory(params.category ? String(params.category) : "");
@@ -76,6 +88,45 @@ export default function CreateTaskScreen() {
     params.priority,
     params.dueDate,
   ]);
+
+  const fetchTemplates = async () => {
+    setLoadingTemplates(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from("templates")
+        .select("*, template_subtasks(*)")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (!error && data) setTemplates(data as Template[]);
+    } catch (e) {
+      console.log("Error fetching templates:", e);
+    }
+    setLoadingTemplates(false);
+  };
+
+  const openTemplatePicker = async () => {
+    setTemplateSearch("");
+    await fetchTemplates();
+    setTemplateModalVisible(true);
+  };
+
+  const applyTemplate = (template: Template) => {
+    // Pre-fill the form fields from the template
+    setTitle(template.title);
+    setCategory(template.category || "");
+    setPriority(
+      ["Low", "Medium", "High"].includes(template.priority)
+        ? (template.priority as "Low" | "Medium" | "High")
+        : "Medium",
+    );
+    setTemplateModalVisible(false);
+  };
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
     setShowDatePicker(Platform.OS === "ios");
@@ -131,6 +182,27 @@ export default function CreateTaskScreen() {
 
         if (newTask) {
           await scheduleTaskReminder(newTask.id, newTask.title, dueDate);
+
+          // Find the template that matches current title to copy its subtasks
+          // (if user applied a template before submitting)
+          const matchedTemplate = templates.find(
+            (t) => t.title === title.trim(),
+          );
+          if (
+            matchedTemplate &&
+            matchedTemplate.template_subtasks?.length > 0
+          ) {
+            const subtasksToInsert = matchedTemplate.template_subtasks
+              .sort((a, b) => a.position - b.position)
+              .map((s, i) => ({
+                task_id: newTask.id,
+                title: s.title,
+                completed: false,
+                position: i,
+              }));
+
+            await supabase.from("subtasks").insert(subtasksToInsert);
+          }
         }
       }
       router.back();
@@ -143,163 +215,303 @@ export default function CreateTaskScreen() {
     }
   };
 
+  const filteredTemplates = templates.filter((t) =>
+    t.title.toLowerCase().includes(templateSearch.toLowerCase()),
+  );
+
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: colors.background }]}
-    >
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Text style={styles.backText}>Cancel</Text>
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>
-          {isEditMode ? "Edit Task" : "New Task"}
-        </Text>
-        <View style={{ width: 60 }} />
-      </View>
+    <>
+      {/* Template picker modal */}
+      <Modal
+        visible={templateModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setTemplateModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[styles.modalSheet, { backgroundColor: colors.background }]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Choose a Template
+              </Text>
+              <TouchableOpacity onPress={() => setTemplateModalVisible(false)}>
+                <Text style={styles.modalClose}>Done</Text>
+              </TouchableOpacity>
+            </View>
 
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+            <TextInput
+              style={[
+                styles.templateSearch,
+                {
+                  backgroundColor: colors.card,
+                  color: colors.text,
+                  borderColor: colors.border,
+                },
+              ]}
+              placeholder="Search templates..."
+              placeholderTextColor={colors.subtext}
+              value={templateSearch}
+              onChangeText={setTemplateSearch}
+            />
 
-      <View style={styles.formGroup}>
-        <Text style={[styles.label, { color: colors.subtext }]}>Title</Text>
-        <TextInput
-          style={[
-            styles.input,
-            {
-              backgroundColor: colors.card,
-              color: colors.text,
-              borderColor: colors.border,
-            },
-          ]}
-          placeholder="What needs to be done?"
-          placeholderTextColor={colors.subtext}
-          value={title}
-          onChangeText={setTitle}
-        />
-      </View>
+            {loadingTemplates ? (
+              <ActivityIndicator color="#6200ee" style={{ marginTop: 24 }} />
+            ) : (
+              <FlatList
+                data={filteredTemplates}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.templateRow,
+                      { borderBottomColor: colors.border },
+                    ]}
+                    onPress={() => applyTemplate(item)}
+                  >
+                    <View style={styles.templateRowLeft}>
+                      <Text
+                        style={[styles.templateTitle, { color: colors.text }]}
+                      >
+                        {item.title}
+                      </Text>
+                      <View style={styles.templateMeta}>
+                        {item.category ? (
+                          <View
+                            style={[
+                              styles.templateCategoryChip,
+                              {
+                                backgroundColor:
+                                  getCategoryColor(item.category) + "22",
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.templateCategoryText,
+                                { color: getCategoryColor(item.category) },
+                              ]}
+                            >
+                              {item.category}
+                            </Text>
+                          </View>
+                        ) : null}
+                        <Text
+                          style={[
+                            styles.templatePriority,
+                            { color: colors.subtext },
+                          ]}
+                        >
+                          {item.priority}
+                        </Text>
+                        {item.template_subtasks?.length > 0 && (
+                          <Text
+                            style={[
+                              styles.templateSubtaskCount,
+                              { color: colors.subtext },
+                            ]}
+                          >
+                            · {item.template_subtasks.length} subtask
+                            {item.template_subtasks.length > 1 ? "s" : ""}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                    <Text
+                      style={[
+                        styles.templateChevron,
+                        { color: colors.subtext },
+                      ]}
+                    >
+                      ›
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                ListEmptyComponent={
+                  <Text
+                    style={[styles.templateEmpty, { color: colors.subtext }]}
+                  >
+                    No templates yet. Save a task as a template from its details
+                    screen.
+                  </Text>
+                }
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
 
-      <View style={styles.formGroup}>
-        <Text style={[styles.label, { color: colors.subtext }]}>
-          Category (Optional)
-        </Text>
-        <TextInput
-          style={[
-            styles.input,
-            {
-              backgroundColor: colors.card,
-              color: colors.text,
-              borderColor: colors.border,
-            },
-          ]}
-          placeholder="e.g. Work, Personal"
-          placeholderTextColor={colors.subtext}
-          value={category}
-          onChangeText={setCategory}
-        />
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.suggestionsRow}
-        >
-          {SUGGESTED_CATEGORIES.map((cat) => {
-            const isSelected = category.toLowerCase() === cat.toLowerCase();
-            const catColor = getCategoryColor(cat);
-            return (
+      <ScrollView
+        style={[styles.container, { backgroundColor: colors.background }]}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.backText}>Cancel</Text>
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>
+            {isEditMode ? "Edit Task" : "New Task"}
+          </Text>
+          {!isEditMode ? (
+            <TouchableOpacity
+              style={styles.templatePickerButton}
+              onPress={openTemplatePicker}
+            >
+              <Text style={styles.templatePickerText}>Templates</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 60 }} />
+          )}
+        </View>
+
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+        <View style={styles.formGroup}>
+          <Text style={[styles.label, { color: colors.subtext }]}>Title</Text>
+          <TextInput
+            style={[
+              styles.input,
+              {
+                backgroundColor: colors.card,
+                color: colors.text,
+                borderColor: colors.border,
+              },
+            ]}
+            placeholder="What needs to be done?"
+            placeholderTextColor={colors.subtext}
+            value={title}
+            onChangeText={setTitle}
+          />
+        </View>
+
+        <View style={styles.formGroup}>
+          <Text style={[styles.label, { color: colors.subtext }]}>
+            Category (Optional)
+          </Text>
+          <TextInput
+            style={[
+              styles.input,
+              {
+                backgroundColor: colors.card,
+                color: colors.text,
+                borderColor: colors.border,
+              },
+            ]}
+            placeholder="e.g. Work, Personal"
+            placeholderTextColor={colors.subtext}
+            value={category}
+            onChangeText={setCategory}
+          />
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.suggestionsRow}
+          >
+            {SUGGESTED_CATEGORIES.map((cat) => {
+              const isSelected = category.toLowerCase() === cat.toLowerCase();
+              const catColor = getCategoryColor(cat);
+              return (
+                <TouchableOpacity
+                  key={cat}
+                  style={[
+                    styles.suggestionChip,
+                    { borderColor: catColor },
+                    isSelected && { backgroundColor: catColor },
+                  ]}
+                  onPress={() => setCategory(cat)}
+                >
+                  <Text
+                    style={[
+                      styles.suggestionText,
+                      { color: isSelected ? "#fff" : catColor },
+                    ]}
+                  >
+                    {cat}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        <View style={styles.formGroup}>
+          <Text style={[styles.label, { color: colors.subtext }]}>
+            Priority
+          </Text>
+          <View style={styles.priorityContainer}>
+            {(["Low", "Medium", "High"] as const).map((p) => (
               <TouchableOpacity
-                key={cat}
+                key={p}
                 style={[
-                  styles.suggestionChip,
-                  { borderColor: catColor },
-                  isSelected && { backgroundColor: catColor },
+                  styles.priorityButton,
+                  { borderColor: colors.border, backgroundColor: colors.card },
+                  priority === p && styles.prioritySelected,
                 ]}
-                onPress={() => setCategory(cat)}
+                onPress={() => setPriority(p)}
               >
                 <Text
                   style={[
-                    styles.suggestionText,
-                    { color: isSelected ? "#fff" : catColor },
+                    styles.priorityText,
+                    { color: colors.text },
+                    priority === p && styles.priorityTextSelected,
                   ]}
                 >
-                  {cat}
+                  {p}
                 </Text>
               </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
+            ))}
+          </View>
+        </View>
 
-      <View style={styles.formGroup}>
-        <Text style={[styles.label, { color: colors.subtext }]}>Priority</Text>
-        <View style={styles.priorityContainer}>
-          {(["Low", "Medium", "High"] as const).map((p) => (
+        <View style={styles.formGroup}>
+          <Text style={[styles.label, { color: colors.subtext }]}>
+            Due Date
+          </Text>
+          {Platform.OS === "android" ? (
             <TouchableOpacity
-              key={p}
               style={[
-                styles.priorityButton,
-                { borderColor: colors.border, backgroundColor: colors.card },
-                priority === p && styles.prioritySelected,
+                styles.dateButton,
+                { backgroundColor: colors.card, borderColor: colors.border },
               ]}
-              onPress={() => setPriority(p)}
+              onPress={() => setShowDatePicker(true)}
             >
-              <Text
-                style={[
-                  styles.priorityText,
-                  { color: colors.text },
-                  priority === p && styles.priorityTextSelected,
-                ]}
-              >
-                {p}
+              <Text style={[styles.dateText, { color: colors.text }]}>
+                {dueDate.toLocaleDateString()}
               </Text>
             </TouchableOpacity>
-          ))}
+          ) : null}
+
+          {(showDatePicker || Platform.OS === "ios") && (
+            <DateTimePicker
+              value={dueDate}
+              mode="date"
+              display="default"
+              onChange={handleDateChange}
+              style={
+                Platform.OS === "ios" ? { alignSelf: "flex-start" } : undefined
+              }
+            />
+          )}
         </View>
-      </View>
 
-      <View style={styles.formGroup}>
-        <Text style={[styles.label, { color: colors.subtext }]}>Due Date</Text>
-        {Platform.OS === "android" ? (
-          <TouchableOpacity
-            style={[
-              styles.dateButton,
-              { backgroundColor: colors.card, borderColor: colors.border },
-            ]}
-            onPress={() => setShowDatePicker(true)}
-          >
-            <Text style={[styles.dateText, { color: colors.text }]}>
-              {dueDate.toLocaleDateString()}
+        <TouchableOpacity
+          style={styles.submitButton}
+          onPress={handleSubmit}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.submitText}>
+              {isEditMode ? "Save Changes" : "Create Task"}
             </Text>
-          </TouchableOpacity>
-        ) : null}
-
-        {(showDatePicker || Platform.OS === "ios") && (
-          <DateTimePicker
-            value={dueDate}
-            mode="date"
-            display="default"
-            onChange={handleDateChange}
-            style={
-              Platform.OS === "ios" ? { alignSelf: "flex-start" } : undefined
-            }
-          />
-        )}
-      </View>
-
-      <TouchableOpacity
-        style={styles.submitButton}
-        onPress={handleSubmit}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.submitText}>
-            {isEditMode ? "Save Changes" : "Create Task"}
-          </Text>
-        )}
-      </TouchableOpacity>
-    </ScrollView>
+          )}
+        </TouchableOpacity>
+      </ScrollView>
+    </>
   );
 }
 
@@ -325,6 +537,14 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: "bold",
+  },
+  templatePickerButton: {
+    padding: 8,
+  },
+  templatePickerText: {
+    fontSize: 15,
+    color: "#6200ee",
+    fontWeight: "600",
   },
   errorText: {
     color: "#d32f2f",
@@ -404,5 +624,88 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "bold",
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 40,
+    maxHeight: "70%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  modalClose: {
+    fontSize: 15,
+    color: "#6200ee",
+    fontWeight: "600",
+  },
+  templateSearch: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 15,
+    marginBottom: 12,
+  },
+  templateRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    borderBottomWidth: 0.5,
+  },
+  templateRowLeft: {
+    flex: 1,
+  },
+  templateTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  templateMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+  },
+  templateCategoryChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginRight: 6,
+  },
+  templateCategoryText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  templatePriority: {
+    fontSize: 12,
+  },
+  templateSubtaskCount: {
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  templateChevron: {
+    fontSize: 22,
+    fontWeight: "600",
+  },
+  templateEmpty: {
+    textAlign: "center",
+    marginTop: 32,
+    fontSize: 14,
+    paddingHorizontal: 16,
   },
 });
