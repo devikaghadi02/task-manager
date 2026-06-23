@@ -4,7 +4,7 @@
 
 ### ✅ NEW: `components/ReorderableTaskList.tsx`
 
-Complete new component for drag-to-reorder functionality
+Complete new component for drag-to-reorder functionalityc
 
 ### ✅ UPDATED: `app/(tabs)/home.tsx`
 

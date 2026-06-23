@@ -1,14 +1,11 @@
 import React, { useCallback, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import {
-    Gesture,
-    GestureDetector,
-    GestureHandlerRootView,
-} from "react-native-gesture-handler";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
-    useAnimatedStyle,
-    useSharedValue,
-    withSpring,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
 } from "react-native-reanimated";
 import { useTheme } from "../lib/ThemeContext";
 
@@ -27,15 +24,21 @@ type Props = {
   tasks: Task[];
   renderItem: (item: Task, index: number) => React.ReactNode;
   onReorder: (tasks: Task[]) => void;
+  onLongPressItem?: (taskId: string) => void;
 };
 
 export default function ReorderableTaskList({
   tasks,
   renderItem,
   onReorder,
+  onLongPressItem,
 }: Props) {
   const { colors } = useTheme();
   const [localTasks, setLocalTasks] = useState(tasks);
+
+  React.useEffect(() => {
+    setLocalTasks(tasks);
+  }, [tasks]);
 
   const handleReorder = useCallback(
     (newOrder: Task[]) => {
@@ -46,20 +49,19 @@ export default function ReorderableTaskList({
   );
 
   return (
-    <GestureHandlerRootView style={styles.root}>
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        {localTasks.map((task, index) => (
-          <DraggableTaskItem
-            key={task.id}
-            task={task}
-            index={index}
-            tasks={localTasks}
-            onReorder={handleReorder}
-            renderItem={() => renderItem(task, index)}
-          />
-        ))}
-      </View>
-    </GestureHandlerRootView>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {localTasks.map((task, index) => (
+        <DraggableTaskItem
+          key={task.id}
+          task={task}
+          index={index}
+          tasks={localTasks}
+          onReorder={handleReorder}
+          onLongPressItem={onLongPressItem}
+          renderItem={() => renderItem(task, index)}
+        />
+      ))}
+    </View>
   );
 }
 
@@ -68,6 +70,7 @@ type DraggableProps = {
   index: number;
   tasks: Task[];
   onReorder: (tasks: Task[]) => void;
+  onLongPressItem?: (taskId: string) => void;
   renderItem: () => React.ReactNode;
 };
 
@@ -76,6 +79,7 @@ function DraggableTaskItem({
   index,
   tasks,
   onReorder,
+  onLongPressItem,
   renderItem,
 }: DraggableProps) {
   const offsetY = useSharedValue(0);
@@ -111,7 +115,11 @@ function DraggableTaskItem({
   const longPressGesture = Gesture.LongPress()
     .minDuration(400)
     .onStart(() => {
-      isBeingDragged.value = true;
+      if (onLongPressItem) {
+        runOnJS(onLongPressItem)(task.id);
+      } else {
+        isBeingDragged.value = true;
+      }
     });
 
   const composed = Gesture.Simultaneous(longPressGesture, panGesture);

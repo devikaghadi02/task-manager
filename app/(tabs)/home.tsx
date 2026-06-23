@@ -1,20 +1,19 @@
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    ScrollView,
-    SectionList,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import ProgressRing from "../../components/ProgressRing";
-import SwipeableTask from "../../components/SwipeableTask";
 import ReorderableTaskList from "../../components/ReorderableTaskList";
+import SwipeableTask from "../../components/SwipeableTask";
 import { supabase } from "../../lib/supabase";
 import { useTheme } from "../../lib/ThemeContext";
 import { getCategoryColor, getUserDisplayName } from "../../lib/userHelper";
@@ -302,6 +301,27 @@ export default function HomeScreen() {
       }
     } catch (e) {
       console.log("Error reordering tasks:", e);
+    }
+  };
+
+  const reorderSectionTasks = async (
+    userId: string,
+    reorderedTasks: Task[],
+  ) => {
+    try {
+      for (let i = 0; i < reorderedTasks.length; i++) {
+        await supabase
+          .from("tasks")
+          .update({ task_order: i })
+          .eq("id", reorderedTasks[i].id);
+      }
+      setSections(
+        sections.map((s) =>
+          s.userId === userId ? { ...s, data: reorderedTasks } : s,
+        ),
+      );
+    } catch (e) {
+      console.log("Error reordering section tasks:", e);
     }
   };
 
@@ -675,6 +695,11 @@ export default function HomeScreen() {
             });
           }
         }}
+        // Long-press is now handled one level up by ReorderableTaskList (which
+        // owns the gesture and decides between drag-start vs entering selection
+        // mode). TaskCard's own onLongPress only matters for the plain FlatList
+        // path (when selectionMode is already true), where ReorderableTaskList
+        // isn't rendered at all — so this is effectively a no-op safety net.
         onLongPress={() => {
           if (!selectionMode) enterSelectionMode(item.id);
         }}
@@ -809,6 +834,16 @@ export default function HomeScreen() {
             >
               <Text style={styles.timelineButtonText}>Timeline</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.timelineButton}
+              onPress={() =>
+                selectionMode ? exitSelectionMode() : setSelectionMode(true)
+              }
+            >
+              <Text style={styles.timelineButtonText}>
+                {selectionMode ? "Done" : "Select"}
+              </Text>
+            </TouchableOpacity>
             <View style={styles.adminBadge}>
               <Text style={styles.adminBadgeText}>Admin</Text>
             </View>
@@ -819,34 +854,49 @@ export default function HomeScreen() {
         <SelectionBar />
         <DueSoonBanner />
 
-        <SectionList
-          sections={filteredSections}
-          keyExtractor={(item) => item.id}
+        <FlatList
+          data={filteredSections}
+          keyExtractor={(section) => section.userId}
           keyboardShouldPersistTaps="always"
-          renderSectionHeader={({ section }) => (
-            <View
-              style={[
-                styles.sectionHeader,
-                { backgroundColor: colors.background },
-              ]}
-            >
-              <View style={styles.sectionLeft}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>
-                    {section.title.charAt(0).toUpperCase()}
+          scrollEnabled={selectionMode}
+          renderItem={({ item: section }) => (
+            <View>
+              <View
+                style={[
+                  styles.sectionHeader,
+                  { backgroundColor: colors.background },
+                ]}
+              >
+                <View style={styles.sectionLeft}>
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>
+                      {section.title.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                    {section.title}
                   </Text>
                 </View>
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                  {section.title}
+                <Text style={[styles.taskCount, { color: colors.subtext }]}>
+                  {section.data.length} tasks
                 </Text>
               </View>
-              <Text style={[styles.taskCount, { color: colors.subtext }]}>
-                {section.data.length} tasks
-              </Text>
+              {selectionMode ? (
+                section.data.map((task) => (
+                  <TaskCard key={task.id} item={task} />
+                ))
+              ) : (
+                <ReorderableTaskList
+                  tasks={section.data}
+                  renderItem={(item) => <TaskCard item={item} />}
+                  onReorder={(reordered) =>
+                    reorderSectionTasks(section.userId, reordered)
+                  }
+                />
+              )}
             </View>
           )}
-          renderItem={({ item }) => <TaskCard item={item} />}
-          SectionSeparatorComponent={() => <View style={{ height: 8 }} />}
+          ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
           ListEmptyComponent={
             <Text style={[styles.emptyText, { color: colors.subtext }]}>
               No tasks match your filters
@@ -888,25 +938,17 @@ export default function HomeScreen() {
       <SelectionBar />
       <DueSoonBanner />
 
-      {selectionMode ? (
-        <FlatList
-          data={filteredTasks}
-          keyExtractor={(item) => item.id}
-          keyboardShouldPersistTaps="always"
-          renderItem={({ item }) => <TaskCard item={item} />}
-          ListEmptyComponent={
-            <Text style={[styles.emptyText, { color: colors.subtext }]}>
-              No tasks match your filters
-            </Text>
-          }
-        />
-      ) : (
-        <ReorderableTaskList
-          tasks={filteredTasks}
-          renderItem={(item) => <TaskCard item={item} />}
-          onReorder={reorderTasks}
-        />
-      )}
+      <FlatList
+        data={filteredTasks}
+        keyExtractor={(item) => item.id}
+        keyboardShouldPersistTaps="always"
+        renderItem={({ item }) => <TaskCard item={item} />}
+        ListEmptyComponent={
+          <Text style={[styles.emptyText, { color: colors.subtext }]}>
+            No tasks match your filters
+          </Text>
+        }
+      />
 
       <TouchableOpacity
         style={styles.fab}
