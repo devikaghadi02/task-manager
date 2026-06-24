@@ -56,11 +56,11 @@ export default function CreateTaskScreen() {
       : new Date(),
   );
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const { colors } = useTheme();
 
-  // Template picker state
   const [templateModalVisible, setTemplateModalVisible] = useState(false);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
@@ -117,7 +117,6 @@ export default function CreateTaskScreen() {
   };
 
   const applyTemplate = (template: Template) => {
-    // Pre-fill the form fields from the template
     setTitle(template.title);
     setCategory(template.category || "");
     setPriority(
@@ -130,7 +129,24 @@ export default function CreateTaskScreen() {
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
     setShowDatePicker(Platform.OS === "ios");
-    if (selectedDate) setDueDate(selectedDate);
+    if (selectedDate) {
+      const merged = new Date(selectedDate);
+      merged.setHours(dueDate.getHours());
+      merged.setMinutes(dueDate.getMinutes());
+      merged.setSeconds(0);
+      setDueDate(merged);
+    }
+  };
+
+  const handleTimeChange = (event: any, selectedTime?: Date) => {
+    setShowTimePicker(Platform.OS === "ios");
+    if (selectedTime) {
+      const merged = new Date(dueDate);
+      merged.setHours(selectedTime.getHours());
+      merged.setMinutes(selectedTime.getMinutes());
+      merged.setSeconds(0);
+      setDueDate(merged);
+    }
   };
 
   const handleSubmit = async () => {
@@ -183,8 +199,6 @@ export default function CreateTaskScreen() {
         if (newTask) {
           await scheduleTaskReminder(newTask.id, newTask.title, dueDate);
 
-          // Find the template that matches current title to copy its subtasks
-          // (if user applied a template before submitting)
           const matchedTemplate = templates.find(
             (t) => t.title === title.trim(),
           );
@@ -221,7 +235,6 @@ export default function CreateTaskScreen() {
 
   return (
     <>
-      {/* Template picker modal */}
       <Modal
         visible={templateModalVisible}
         animationType="slide"
@@ -468,20 +481,43 @@ export default function CreateTaskScreen() {
 
         <View style={styles.formGroup}>
           <Text style={[styles.label, { color: colors.subtext }]}>
-            Due Date
+            Due Date & Time
           </Text>
+
           {Platform.OS === "android" ? (
-            <TouchableOpacity
-              style={[
-                styles.dateButton,
-                { backgroundColor: colors.card, borderColor: colors.border },
-              ]}
-              onPress={() => setShowDatePicker(true)}
-            >
-              <Text style={[styles.dateText, { color: colors.text }]}>
-                {dueDate.toLocaleDateString()}
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.dateTimeRow}>
+              <TouchableOpacity
+                style={[
+                  styles.dateButton,
+                  {
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                    flex: 1,
+                    marginRight: 8,
+                  },
+                ]}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Text style={[styles.dateText, { color: colors.text }]}>
+                  {dueDate.toLocaleDateString()}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.dateButton,
+                  { backgroundColor: colors.card, borderColor: colors.border },
+                ]}
+                onPress={() => setShowTimePicker(true)}
+              >
+                <Text style={[styles.dateText, { color: colors.text }]}>
+                  {dueDate.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </Text>
+              </TouchableOpacity>
+            </View>
           ) : null}
 
           {(showDatePicker || Platform.OS === "ios") && (
@@ -493,6 +529,25 @@ export default function CreateTaskScreen() {
               style={
                 Platform.OS === "ios" ? { alignSelf: "flex-start" } : undefined
               }
+            />
+          )}
+
+          {showTimePicker && Platform.OS === "android" && (
+            <DateTimePicker
+              value={dueDate}
+              mode="time"
+              display="default"
+              onChange={handleTimeChange}
+            />
+          )}
+
+          {Platform.OS === "ios" && (
+            <DateTimePicker
+              value={dueDate}
+              mode="time"
+              display="default"
+              onChange={handleTimeChange}
+              style={{ alignSelf: "flex-start", marginTop: 8 }}
             />
           )}
         </View>
@@ -609,6 +664,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
+  dateTimeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   dateText: {
     fontSize: 16,
   },
@@ -625,7 +684,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "bold",
   },
-  // Modal styles
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.4)",

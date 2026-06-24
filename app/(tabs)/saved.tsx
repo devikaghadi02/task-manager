@@ -1,5 +1,5 @@
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   FlatList,
   StyleSheet,
@@ -59,6 +59,43 @@ export default function SavedScreen() {
     setLoading(false);
   };
 
+  // All derived from the already-loaded completed tasks — no extra query.
+  const stats = useMemo(() => {
+    const priorityCounts: Record<string, number> = {
+      High: 0,
+      Medium: 0,
+      Low: 0,
+    };
+    const categoryCounts: Record<string, number> = {};
+
+    tasks.forEach((t) => {
+      if (priorityCounts[t.priority] !== undefined) {
+        priorityCounts[t.priority] += 1;
+      }
+      if (t.category) {
+        categoryCounts[t.category] = (categoryCounts[t.category] || 0) + 1;
+      }
+    });
+
+    let topCategory: string | null = null;
+    let topCategoryCount = 0;
+    Object.entries(categoryCounts).forEach(([cat, count]) => {
+      if (count > topCategoryCount) {
+        topCategory = cat;
+        topCategoryCount = count;
+      }
+    });
+
+    return {
+      total: tasks.length,
+      high: priorityCounts.High,
+      medium: priorityCounts.Medium,
+      low: priorityCounts.Low,
+      topCategory,
+      topCategoryCount,
+    };
+  }, [tasks]);
+
   if (loading) {
     return (
       <View style={[styles.centered, { backgroundColor: colors.background }]}>
@@ -99,6 +136,56 @@ export default function SavedScreen() {
         {tasks.length} completed tasks
       </Text>
 
+      <View style={[styles.statsCard, { backgroundColor: colors.card }]}>
+        <View style={styles.statsRow}>
+          <View style={styles.statBox}>
+            <Text style={[styles.statNumber, { color: colors.text }]}>
+              {stats.total}
+            </Text>
+            <Text style={[styles.statLabel, { color: colors.subtext }]}>
+              Total
+            </Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={[styles.statNumber, styles.highNumber]}>
+              {stats.high}
+            </Text>
+            <Text style={[styles.statLabel, { color: colors.subtext }]}>
+              High
+            </Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={[styles.statNumber, styles.mediumNumber]}>
+              {stats.medium}
+            </Text>
+            <Text style={[styles.statLabel, { color: colors.subtext }]}>
+              Medium
+            </Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={[styles.statNumber, styles.lowNumber]}>
+              {stats.low}
+            </Text>
+            <Text style={[styles.statLabel, { color: colors.subtext }]}>
+              Low
+            </Text>
+          </View>
+        </View>
+
+        {stats.topCategory ? (
+          <View
+            style={[styles.topCategoryRow, { borderTopColor: colors.border }]}
+          >
+            <Text style={[styles.topCategoryLabel, { color: colors.subtext }]}>
+              Most completed in
+            </Text>
+            <Text style={[styles.topCategoryValue, { color: colors.text }]}>
+              {stats.topCategory} ({stats.topCategoryCount})
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
       <FlatList
         data={tasks}
         keyExtractor={(item) => item.id}
@@ -106,9 +193,18 @@ export default function SavedScreen() {
           <TouchableOpacity
             style={[styles.card, { backgroundColor: colors.card }]}
             onPress={() =>
-              router.push(
-                `/details?id=${item.id}&title=${item.title}&completed=${item.completed}&userId=${item.user_id}&dueDate=${item.due_date || ""}&priority=${item.priority}&category=${item.category || ""}`,
-              )
+              router.push({
+                pathname: "/details",
+                params: {
+                  id: item.id,
+                  title: item.title,
+                  completed: String(item.completed),
+                  userId: item.user_id,
+                  dueDate: item.due_date || "",
+                  priority: item.priority,
+                  category: item.category || "",
+                },
+              })
             }
           >
             <View style={styles.cardRow}>
@@ -177,7 +273,53 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 13,
+    marginBottom: 12,
+  },
+  statsCard: {
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 16,
+    elevation: 1,
+  },
+  statsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  statBox: {
+    alignItems: "center",
+    flex: 1,
+  },
+  statNumber: {
+    fontSize: 22,
+    fontWeight: "bold",
+  },
+  highNumber: {
+    color: "#c62828",
+  },
+  mediumNumber: {
+    color: "#e65100",
+  },
+  lowNumber: {
+    color: "#2e7d32",
+  },
+  statLabel: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  topCategoryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 0.5,
+  },
+  topCategoryLabel: {
+    fontSize: 12,
+  },
+  topCategoryValue: {
+    fontSize: 13,
+    fontWeight: "700",
   },
   adminBadge: {
     backgroundColor: "#fff3e0",

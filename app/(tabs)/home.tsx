@@ -117,6 +117,9 @@ export default function HomeScreen() {
 
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [quickAddVisible, setQuickAddVisible] = useState(false);
+  const [quickAddText, setQuickAddText] = useState("");
+  const [quickAdding, setQuickAdding] = useState(false);
 
   useEffect(() => {
     getCurrentUser();
@@ -440,6 +443,38 @@ export default function HomeScreen() {
     } catch (e) {
       console.log("Error bulk completing:", e);
     }
+  };
+
+  const quickAddTask = async () => {
+    if (!quickAddText.trim()) return;
+    setQuickAdding(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from("tasks")
+        .insert({
+          title: quickAddText.trim(),
+          user_id: user.id,
+          completed: false,
+          priority: "Medium",
+        })
+        .select()
+        .single();
+
+      if (!error && data) {
+        setTasks((prev) => [data as Task, ...prev]);
+        setQuickAddText("");
+        fetchOverallStats(isAdmin);
+        // Leave the bar open so they can add another quickly
+      }
+    } catch (e) {
+      console.log("Error quick-adding task:", e);
+    }
+    setQuickAdding(false);
   };
 
   const categories = useMemo(() => {
@@ -1051,12 +1086,54 @@ export default function HomeScreen() {
         }
       />
 
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => router.push("/create-task")}
-      >
-        <Text style={styles.fabText}>+</Text>
-      </TouchableOpacity>
+      {/* Quick-add bar — slides in above the FAB */}
+      {quickAddVisible && (
+        <View
+          style={[
+            styles.quickAddBar,
+            { backgroundColor: colors.card, borderColor: colors.border },
+          ]}
+        >
+          <TextInput
+            style={[styles.quickAddInput, { color: colors.text }]}
+            placeholder="Task title... (tap ⋯ for full details)"
+            placeholderTextColor={colors.subtext}
+            value={quickAddText}
+            onChangeText={setQuickAddText}
+            onSubmitEditing={quickAddTask}
+            autoFocus
+            returnKeyType="done"
+          />
+          <TouchableOpacity
+            style={[styles.quickAddSend, quickAdding && { opacity: 0.5 }]}
+            onPress={quickAddTask}
+            disabled={quickAdding}
+          >
+            <Text style={styles.quickAddSendText}>↑</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.quickAddFull}
+            onPress={() => {
+              setQuickAddVisible(false);
+              router.push("/create-task");
+            }}
+          >
+            <Text style={styles.quickAddFullText}>⋯</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <View style={styles.fabRow}>
+        <TouchableOpacity
+          style={[styles.fab, quickAddVisible && styles.fabActive]}
+          onPress={() => {
+            setQuickAddVisible((v) => !v);
+            if (quickAddVisible) setQuickAddText("");
+          }}
+        >
+          <Text style={styles.fabText}>{quickAddVisible ? "✕" : "+"}</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -1424,5 +1501,63 @@ const styles = StyleSheet.create({
   },
   historyChipCloseText: {
     fontSize: 11,
+  },
+  quickAddBar: {
+    position: "absolute",
+    bottom: 88,
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  quickAddInput: {
+    flex: 1,
+    fontSize: 15,
+    paddingVertical: 6,
+  },
+  quickAddSend: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#6200ee",
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 8,
+  },
+  quickAddSendText: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  quickAddFull: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: "#6200ee",
+    justifyContent: "center",
+    marginLeft: 6,
+  },
+  quickAddFullText: {
+    color: "#6200ee",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  fabRow: {
+    position: "absolute",
+    bottom: 24,
+    right: 24,
+  },
+  fabActive: {
+    backgroundColor: "#444",
   },
 });
