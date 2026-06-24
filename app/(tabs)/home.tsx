@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -110,6 +110,8 @@ export default function HomeScreen() {
   const [sortBy, setSortBy] = useState<"dueDate" | "priority" | "created">(
     "dueDate",
   );
+  const overdueAlertShown = useRef(false);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
 
   const [overallStats, setOverallStats] = useState({ total: 0, completed: 0 });
 
@@ -130,6 +132,7 @@ export default function HomeScreen() {
         setIsAdmin(admin);
         fetchTasks(admin);
         fetchOverallStats(admin);
+        checkOverdueTasks(admin);
       } else {
         setLoading(false);
       }
@@ -157,6 +160,49 @@ export default function HomeScreen() {
       }
     } catch (e) {
       console.log("Error fetching overall stats:", e);
+    }
+  };
+
+  const checkOverdueTasks = async (admin: boolean) => {
+    if (overdueAlertShown.current) return;
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const now = new Date().toISOString();
+      const query = supabase
+        .from("tasks")
+        .select("id", { count: "exact" })
+        .eq("completed", false)
+        .lt("due_date", now);
+
+      const { count, error } = admin
+        ? await query
+        : await query.eq("user_id", user.id);
+
+      if (error) throw error;
+
+      if (count && count > 0) {
+        overdueAlertShown.current = true;
+        Alert.alert(
+          "Overdue Tasks",
+          `You have ${count} overdue task${count > 1 ? "s" : ""}! Check them soon.`,
+          [
+            {
+              text: "View Overdue",
+              onPress: () => {
+                setFiltersOpen(true);
+                setSelectedStatus("Pending");
+              },
+            },
+            { text: "Dismiss", style: "cancel" },
+          ],
+        );
+      }
+    } catch (e) {
+      console.log("Error checking overdue tasks:", e);
     }
   };
 
@@ -477,6 +523,21 @@ export default function HomeScreen() {
     [tasks, filterTask, sortTasks],
   );
 
+  const addToSearchHistory = (text: string) => {
+    if (!text.trim()) return;
+    setSearchHistory((prev) => {
+      // Remove duplicate if exists, add to front, keep max 5
+      const filtered = prev.filter(
+        (s) => s.toLowerCase() !== text.toLowerCase(),
+      );
+      return [text.trim(), ...filtered].slice(0, 5);
+    });
+  };
+
+  const removeFromHistory = (term: string) => {
+    setSearchHistory((prev) => prev.filter((s) => s !== term));
+  };
+
   const filteredSections = useMemo(
     () =>
       sections
@@ -511,6 +572,8 @@ export default function HomeScreen() {
           onChangeText={setSearchText}
           returnKeyType="search"
           blurOnSubmit={false}
+          onSubmitEditing={() => addToSearchHistory(searchText)}
+          onEndEditing={() => addToSearchHistory(searchText)}
         />
         <TouchableOpacity
           style={[
@@ -554,6 +617,44 @@ export default function HomeScreen() {
           </Text>
         </TouchableOpacity>
       </View>
+
+      {searchHistory.length > 0 && searchText === "" && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.historyRow}
+          contentContainerStyle={{ alignItems: "center", paddingRight: 8 }}
+        >
+          {searchHistory.map((term) => (
+            <View
+              key={term}
+              style={[
+                styles.historyChip,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+            >
+              <TouchableOpacity onPress={() => setSearchText(term)}>
+                <Text style={[styles.historyChipText, { color: colors.text }]}>
+                  {term}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => removeFromHistory(term)}
+                style={styles.historyChipClose}
+              >
+                <Text
+                  style={[
+                    styles.historyChipCloseText,
+                    { color: colors.subtext },
+                  ]}
+                >
+                  ✕
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </ScrollView>
+      )}
 
       {filtersOpen && (
         <>
@@ -1298,5 +1399,30 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "600",
     fontSize: 13,
+  },
+  historyRow: {
+    marginBottom: 6,
+    flexGrow: 0,
+  },
+  historyChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingLeft: 12,
+    paddingRight: 6,
+    paddingVertical: 5,
+    marginRight: 8,
+  },
+  historyChipText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  historyChipClose: {
+    paddingLeft: 6,
+    paddingRight: 2,
+  },
+  historyChipCloseText: {
+    fontSize: 11,
   },
 });

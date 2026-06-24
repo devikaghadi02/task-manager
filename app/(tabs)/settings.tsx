@@ -170,6 +170,16 @@ export default function SettingsScreen() {
 
       <TouchableOpacity
         style={[styles.card, { backgroundColor: colors.card }]}
+        onPress={() => router.push("/statistics")}
+      >
+        <Text style={[styles.settingLabel, { color: colors.text }]}>
+          Statistics
+        </Text>
+        <Text style={[styles.chevron, { color: colors.subtext }]}>›</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.card, { backgroundColor: colors.card }]}
         onPress={handleExport}
         disabled={exporting}
       >
