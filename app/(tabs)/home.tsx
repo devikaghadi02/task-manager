@@ -1182,6 +1182,12 @@ export default function HomeScreen() {
             </Text>
           }
         />
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.push("/create-task")}
+        >
+          <Text style={styles.fabText}>+</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -1732,7 +1738,8 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     elevation: 8,
     shadowColor: "#000",
-    shadowOffset: 0.25,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
     shadowRadius: 8,
   },
   sidebarHeader: {
@@ -1742,7 +1749,7 @@ const styles = StyleSheet.create({
   sidebarAvatar: {
     width: 56,
     height: 56,
-    boderradius: 28,
+    borderRadius: 28,
     backgroundColor: "#6200ee",
     justifyContent: "center",
     alignItems: "center",
@@ -1791,7 +1798,7 @@ const styles = StyleSheet.create({
     width: 24,
     textAlign: "center",
   },
-  sidebarItemTexT: {
+  sidebarItemText: {
     fontSize: 16,
     fontWeight: "500",
   },

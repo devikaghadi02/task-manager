@@ -65,6 +65,13 @@ export default function CreateTaskScreen() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [templateSearch, setTemplateSearch] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [assignedUserId, setAssignedUserId] = useState<string | null>(null);
+  const [assignedUserName, setAssignedUserName] = useState<string>("");
+  const [userPickerVisible, setUserPickerVisible] = useState(false);
+  const [allUsers, setAllUsers] = useState<
+    { id: string; name: string; email: string }[]
+  >([]);
 
   useEffect(() => {
     setTitle(params.title ? String(params.title) : "");
@@ -88,6 +95,45 @@ export default function CreateTaskScreen() {
     params.priority,
     params.dueDate,
   ]);
+
+  useEffect(() => {
+    const checkAdmin = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user?.email === "admin@test.com") {
+        setIsAdmin(true);
+        fetchAllUsers();
+      }
+    };
+    checkAdmin();
+  }, []);
+
+  const fetchAllUsers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name, email");
+      if (error) {
+        console.log("Error fetching users: ", error);
+        return;
+      }
+      if (data) {
+        console.log("Fetched users:", data);
+        setAllUsers(
+          data
+            .filter((p: any) => p.email !== "admin@test.com")
+            .map((p: any) => ({
+              id: p.id,
+              name: p.full_name || p.email?.split("@")[0] || "Unknown",
+              email: p.email || "",
+            })),
+        );
+      }
+    } catch (e) {
+      console.log("fetchAllUsers error: ", e);
+    }
+  };
 
   const fetchTemplates = async () => {
     setLoadingTemplates(true);
@@ -182,10 +228,13 @@ export default function CreateTaskScreen() {
           return;
         }
 
+        const targetUserId =
+          isAdmin && assignedUserId ? assignedUserId : user.id;
+
         const { data: newTask, error: insertError } = await supabase
           .from("tasks")
           .insert({
-            user_id: user.id,
+            user_id: targetUserId,
             title: title.trim(),
             category: category.trim() || null,
             priority,
@@ -235,6 +284,72 @@ export default function CreateTaskScreen() {
 
   return (
     <>
+      <Modal
+        visible={userPickerVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setUserPickerVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[styles.modalSheet, { backgroundColor: colors.background }]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Assign to User
+              </Text>
+              <TouchableOpacity onPress={() => setUserPickerVisible(false)}>
+                <Text style={styles.modalClose}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={allUsers}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.templateRow,
+                    { borderBottomColor: colors.border },
+                  ]}
+                  onPress={() => {
+                    setAssignedUserId(item.id);
+                    setAssignedUserName(item.name);
+                    setUserPickerVisible(false);
+                  }}
+                >
+                  <View
+                    style={[styles.userDot, { backgroundColor: "#6200ee" }]}
+                  >
+                    <Text style={styles.userDotText}>
+                      {item.name.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[styles.templateTitle, { color: colors.text }]}
+                    >
+                      {item.name}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.templatePriority,
+                        { color: colors.subtext },
+                      ]}
+                    >
+                      {item.email}
+                    </Text>
+                  </View>
+                  {assignedUserId === item.id && (
+                    <Text style={{ color: "#6200ee", fontWeight: "bold" }}>
+                      ✓
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
       <Modal
         visible={templateModalVisible}
         animationType="slide"
@@ -478,6 +593,30 @@ export default function CreateTaskScreen() {
             ))}
           </View>
         </View>
+
+        {isAdmin && (
+          <View style={styles.formGroup}>
+            <Text style={[styles.label, { color: colors.subtext }]}>
+              Assign To
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.dateButton,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}
+              onPress={() => setUserPickerVisible(true)}
+            >
+              <Text
+                style={[
+                  styles.dateText,
+                  { color: assignedUserId ? colors.text : colors.subtext },
+                ]}
+              >
+                {assignedUserId ? assignedUserName : "Select a user..."}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.formGroup}>
           <Text style={[styles.label, { color: colors.subtext }]}>
@@ -765,5 +904,18 @@ const styles = StyleSheet.create({
     marginTop: 32,
     fontSize: 14,
     paddingHorizontal: 16,
+  },
+  userDot: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  userDotText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
   },
 });
