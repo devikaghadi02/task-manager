@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -120,6 +122,10 @@ export default function HomeScreen() {
   const [quickAddVisible, setQuickAddVisible] = useState(false);
   const [quickAddText, setQuickAddText] = useState("");
   const [quickAdding, setQuickAdding] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [userName, setUserName] = useState("");
+  const [userEmail, setUserEmail] = useState("");
+  const sidebarAnim = useRef(new Animated.Value(-280)).current;
 
   useEffect(() => {
     getCurrentUser();
@@ -133,15 +139,40 @@ export default function HomeScreen() {
       if (user) {
         const admin = user.email === "admin@test.com";
         setIsAdmin(admin);
+        setUserEmail(user.email || "");
         fetchTasks(admin);
         fetchOverallStats(admin);
         checkOverdueTasks(admin);
+
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("full_name, email")
+          .eq("id", user.id)
+          .single();
+        setUserName(profile?.full_name || user.email?.split("@")[0] || "User");
       } else {
         setLoading(false);
       }
     } catch (e) {
       setLoading(false);
     }
+  };
+
+  const openSidebar = () => {
+    setSidebarOpen(true);
+    Animated.timing(sidebarAnim, {
+      toValue: 0,
+      duration: 280,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const closeSidebar = () => {
+    Animated.timing(sidebarAnim, {
+      toValue: -280,
+      duration: 240,
+      useNativeDriver: true,
+    }).start(() => setSidebarOpen(false));
   };
 
   const fetchOverallStats = async (admin: boolean) => {
@@ -336,15 +367,12 @@ export default function HomeScreen() {
 
   const reorderTasks = async (reorderedTasks: Task[]) => {
     try {
-      // Update order in database
       for (let i = 0; i < reorderedTasks.length; i++) {
         await supabase
           .from("tasks")
           .update({ task_order: i })
           .eq("id", reorderedTasks[i].id);
       }
-
-      // Update local state
       if (!isAdmin) {
         setTasks(reorderedTasks);
       }
@@ -374,7 +402,6 @@ export default function HomeScreen() {
     }
   };
 
-  // --- Multi-select bulk action helpers ---
   const enterSelectionMode = (taskId: string) => {
     setSelectionMode(true);
     setSelectedIds(new Set([taskId]));
@@ -469,7 +496,6 @@ export default function HomeScreen() {
         setTasks((prev) => [data as Task, ...prev]);
         setQuickAddText("");
         fetchOverallStats(isAdmin);
-        // Leave the bar open so they can add another quickly
       }
     } catch (e) {
       console.log("Error quick-adding task:", e);
@@ -561,7 +587,6 @@ export default function HomeScreen() {
   const addToSearchHistory = (text: string) => {
     if (!text.trim()) return;
     setSearchHistory((prev) => {
-      // Remove duplicate if exists, add to front, keep max 5
       const filtered = prev.filter(
         (s) => s.toLowerCase() !== text.toLowerCase(),
       );
@@ -803,6 +828,118 @@ export default function HomeScreen() {
       </View>
     ) : null;
 
+  const Sidebar = () => (
+    <Modal
+      visible={sidebarOpen}
+      transparent
+      animationType="none"
+      onRequestClose={closeSidebar}
+    >
+      <TouchableOpacity
+        style={styles.sidebarOverlay}
+        activeOpacity={1}
+        onPress={closeSidebar}
+      >
+        <Animated.View
+          style={[
+            styles.sidebar,
+            {
+              backgroundColor: colors.card,
+              transform: [{ translateX: sidebarAnim }],
+            },
+          ]}
+        >
+          <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+            <View style={styles.sidebarHeader}>
+              <View style={styles.sidebarAvatar}>
+                <Text style={styles.sidebarAvatarText}>
+                  {userName.charAt(0).toUpperCase()}
+                </Text>
+              </View>
+              <Text
+                style={[styles.sidebarName, { color: colors.text }]}
+                numberOfLines={1}
+              >
+                {userName}
+              </Text>
+              <Text
+                style={[styles.sidebarEmail, { color: colors.subtext }]}
+                numberOfLines={1}
+              >
+                {userEmail}
+              </Text>
+              {isAdmin && (
+                <View style={styles.sidebarAdminBadge}>
+                  <Text style={styles.sidebarAdminText}>Admin</Text>
+                </View>
+              )}
+            </View>
+
+            <View
+              style={[
+                styles.sidebarDivider,
+                { backgroundColor: colors.border },
+              ]}
+            />
+
+            <TouchableOpacity
+              style={styles.sidebarItem}
+              onPress={() => {
+                closeSidebar();
+                router.push("/statistics");
+              }}
+            >
+              <Text style={styles.sidebarItemIcon}>📊</Text>
+              <Text style={[styles.sidebarItemText, { color: colors.text }]}>
+                Statistics
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.sidebarItem}
+              onPress={() => {
+                closeSidebar();
+                router.push("/profile");
+              }}
+            >
+              <Text style={styles.sidebarItemIcon}>👤</Text>
+              <Text style={[styles.sidebarItemText, { color: colors.text }]}>
+                Profile
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.sidebarItem} onPress={closeSidebar}>
+              <Text style={styles.sidebarItemIcon}>✓</Text>
+              <Text style={[styles.sidebarItemText, { color: colors.text }]}>
+                Task List
+              </Text>
+            </TouchableOpacity>
+
+            <View
+              style={[
+                styles.sidebarDivider,
+                { backgroundColor: colors.border },
+              ]}
+            />
+
+            <TouchableOpacity
+              style={styles.sidebarItem}
+              onPress={() => {
+                closeSidebar();
+                router.push("/(tabs)/settings");
+              }}
+            >
+              <Text style={styles.sidebarItemIcon}>⚙️</Text>
+              <Text style={[styles.sidebarItemText, { color: colors.text }]}>
+                Settings
+              </Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Animated.View>
+      </TouchableOpacity>
+    </Modal>
+  );
+
   const TaskCard = ({ item }: { item: Task }) => {
     const isSelected = selectedIds.has(item.id);
 
@@ -831,11 +968,6 @@ export default function HomeScreen() {
             });
           }
         }}
-        // Long-press is now handled one level up by ReorderableTaskList (which
-        // owns the gesture and decides between drag-start vs entering selection
-        // mode). TaskCard's own onLongPress only matters for the plain FlatList
-        // path (when selectionMode is already true), where ReorderableTaskList
-        // isn't rendered at all — so this is effectively a no-op safety net.
         onLongPress={() => {
           if (!selectionMode) enterSelectionMode(item.id);
         }}
@@ -951,8 +1083,16 @@ export default function HomeScreen() {
   if (isAdmin) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <Sidebar />
         <View style={styles.header}>
-          <Text style={[styles.title, { color: colors.text }]}>Tasks</Text>
+          <View style={styles.titleRow}>
+            <TouchableOpacity onPress={openSidebar} style={styles.hamburger}>
+              <Text style={[styles.hamburgerText, { color: colors.text }]}>
+                ☰
+              </Text>
+            </TouchableOpacity>
+            <Text style={[styles.title, { color: colors.text }]}>Tasks</Text>
+          </View>
           <View style={styles.headerRight}>
             <TouchableOpacity
               style={styles.progressRingWrap}
@@ -1045,8 +1185,16 @@ export default function HomeScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <Sidebar />
       <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.text }]}>My Tasks</Text>
+        <View style={styles.titleRow}>
+          <TouchableOpacity onPress={openSidebar} style={styles.hamburger}>
+            <Text style={[styles.hamburgerText, { color: colors.text }]}>
+              ☰
+            </Text>
+          </TouchableOpacity>
+          <Text style={[styles.title, { color: colors.text }]}>My Tasks</Text>
+        </View>
         <View style={styles.headerRight}>
           <TouchableOpacity
             style={styles.progressRingWrap}
@@ -1086,7 +1234,6 @@ export default function HomeScreen() {
         }
       />
 
-      {/* Quick-add bar — slides in above the FAB */}
       {quickAddVisible && (
         <View
           style={[
@@ -1559,5 +1706,90 @@ const styles = StyleSheet.create({
   },
   fabActive: {
     backgroundColor: "#444",
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  hamburger: {
+    marginRight: 12,
+    padding: 4,
+  },
+  hamburgerText: {
+    fontSize: 22,
+  },
+  sidebarOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    flexDirection: "row",
+  },
+  sidebar: {
+    width: 280,
+    height: "100%",
+    paddingTop: 60,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: 0.25,
+    shadowRadius: 8,
+  },
+  sidebarHeader: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  sidebarAvatar: {
+    width: 56,
+    height: 56,
+    boderradius: 28,
+    backgroundColor: "#6200ee",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  sidebarAvatarText: {
+    fontSize: 24,
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  sidebarName: {
+    fontSize: 17,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
+  sidebarEmail: {
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  sidebarAdminBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#fff3e0",
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  sidebarAdminText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#e65100",
+  },
+  sidebarDivider: {
+    height: 1,
+    marginVertical: 8,
+    marginHorizontal: 20,
+  },
+  sidebarItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  sidebarItemIcon: {
+    fontSize: 18,
+    marginRight: 16,
+    width: 24,
+    textAlign: "center",
+  },
+  sidebarItemTexT: {
+    fontSize: 16,
+    fontWeight: "500",
   },
 });
