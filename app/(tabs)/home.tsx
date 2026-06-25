@@ -29,6 +29,7 @@ type Task = {
   priority: string;
   category: string | null;
   task_order?: number;
+  reaction?: string | null;
 };
 
 type Section = {
@@ -282,7 +283,6 @@ export default function HomeScreen() {
             .from("tasks")
             .select("*")
             .eq("user_id", user.id)
-            .eq("completed", false)
             .order("created_at", { ascending: false });
 
           if (fetchError) throw fetchError;
@@ -1042,6 +1042,9 @@ export default function HomeScreen() {
               </Text>
             </View>
           )}
+          {item.reaction && (
+            <Text style={styles.reactionBadge}>{item.reaction}</Text>
+          )}
         </View>
       </TouchableOpacity>
     );
@@ -1791,5 +1794,9 @@ const styles = StyleSheet.create({
   sidebarItemTexT: {
     fontSize: 16,
     fontWeight: "500",
+  },
+  reactionBadge: {
+    fontSize: 18,
+    marginLeft: 6,
   },
 });

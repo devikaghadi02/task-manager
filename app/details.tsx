@@ -86,6 +86,8 @@ export default function DetailsScreen() {
   const [blockedById, setBlockedById] = useState<string | null>(null);
   const [blockedByTitle, setBlockedByTitle] = useState<string>("");
   const [blockedByCompleted, setBlockedByCompleted] = useState<boolean>(false);
+  const [reaction, setReactionState] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [depPickerVisible, setDepPickerVisible] = useState(false);
   const [depSearchText, setDepSearchText] = useState("");
   const [allTasks, setAllTasks] = useState<TaskOption[]>([]);
@@ -108,6 +110,7 @@ export default function DetailsScreen() {
         setNotes(data.notes ?? "");
         setTaskCreatedAt(data.created_at ?? "");
         setTaskCompletedAt(data.completed_at ?? null);
+        setReactionState(data.reaction ?? null);
 
         // Load blocking task details if a dependency is set
         if (data.blocked_by) {
@@ -139,6 +142,12 @@ export default function DetailsScreen() {
       refetchTask();
     }, [refetchTask]),
   );
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) setIsAdmin(user.email === "admin@test.com");
+    });
+  }, []);
 
   useEffect(() => {
     fetchProfile();
@@ -232,6 +241,19 @@ export default function DetailsScreen() {
       setBlockedByCompleted(false);
     } catch (e) {
       console.log("Error clearing dependency:", e);
+    }
+  };
+
+  const saveReaction = async (emoji: string | null) => {
+    try {
+      const newReaction = reaction == emoji ? null : emoji;
+      const { error } = await supabase
+        .from("tasks")
+        .update({ reaction: newReaction })
+        .eq("id", String(id));
+      if (!error) setReactionState(newReaction);
+    } catch (e) {
+      console.log("Error saving reaction: ", e);
     }
   };
 
@@ -614,6 +636,42 @@ export default function DetailsScreen() {
                 {isCompleted ? "Completed" : isBlocked ? "Blocked" : "Pending"}
               </Text>
             </View>
+            {/* Reaction row — admin can react to completed tasks */}
+            {isCompleted && (
+              <View style={styles.reactionRow}>
+                {isAdmin ? (
+                  <>
+                    {["👍", "🔥", "✨", "🎉"].map((emoji) => (
+                      <TouchableOpacity
+                        key={emoji}
+                        style={[
+                          styles.reactionBtn,
+                          reaction === emoji && styles.reactionBtnActive,
+                        ]}
+                        onPress={() => saveReaction(emoji)}
+                      >
+                        <Text style={styles.reactionEmoji}>{emoji}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    {reaction && (
+                      <TouchableOpacity
+                        onPress={() => saveReaction(null)}
+                        style={styles.reactionClear}
+                      >
+                        <Text style={styles.reactionClearText}>✕</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                ) : reaction ? (
+                  <View style={styles.reactionDisplay}>
+                    <Text style={styles.reactionDisplayEmoji}>{reaction}</Text>
+                    <Text style={styles.reactionDisplayLabel}>
+                      Admin reacted
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            )}
 
             <Text style={[styles.title, { color: colors.text }]}>
               {taskTitle}
@@ -1236,5 +1294,49 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#6200ee",
     fontWeight: "600",
+  },
+  reactionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  reactionBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "#e0e0e0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  reactionBtnActive: {
+    borderColor: "#6200ee",
+    backgroundColor: "#f3e8ff",
+  },
+  reactionEmoji: {
+    fontSize: 20,
+  },
+  reactionClear: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  reactionClearText: {
+    color: "#999",
+    fontSize: 14,
+  },
+  reactionDisplay: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  reactionDisplayEmoji: {
+    fontSize: 24,
+  },
+  reactionDisplayLabel: {
+    fontSize: 12,
+    color: "#888",
+    fontWeight: "500",
   },
 });
