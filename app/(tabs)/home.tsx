@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -96,7 +97,7 @@ function FilterChips({
     </ScrollView>
   );
 }
-
+let overdueAlertShownGlobal = false;
 export default function HomeScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
@@ -113,7 +114,7 @@ export default function HomeScreen() {
   const [sortBy, setSortBy] = useState<"dueDate" | "priority" | "created">(
     "dueDate",
   );
-  const overdueAlertShown = useRef(false);
+  const overdueAlertShown = useRef(overdueAlertShownGlobal);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
 
   const [overallStats, setOverallStats] = useState({ total: 0, completed: 0 });
@@ -200,6 +201,15 @@ export default function HomeScreen() {
 
   const checkOverdueTasks = async (admin: boolean) => {
     if (overdueAlertShown.current) return;
+
+    // Only show once per login session — persisted via AsyncStorage
+    const key = "overdueAlertShown";
+    const already = await AsyncStorage.getItem(key);
+    if (already === "true") {
+      overdueAlertShown.current = true;
+      return;
+    }
+
     try {
       const {
         data: { user },
@@ -221,6 +231,7 @@ export default function HomeScreen() {
 
       if (count && count > 0) {
         overdueAlertShown.current = true;
+        await AsyncStorage.setItem(key, "true");
         Alert.alert(
           "Overdue Tasks",
           `You have ${count} overdue task${count > 1 ? "s" : ""}! Check them soon.`,
@@ -283,6 +294,7 @@ export default function HomeScreen() {
             .from("tasks")
             .select("*")
             .eq("user_id", user.id)
+            .eq("completed", false)
             .order("created_at", { ascending: false });
 
           if (fetchError) throw fetchError;

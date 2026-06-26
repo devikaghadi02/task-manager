@@ -30,6 +30,10 @@ export default function SettingsScreen() {
   };
 
   const handleLogout = async () => {
+    const AsyncStorage = (
+      await import("@react-native-async-storage/async-storage")
+    ).default;
+    await AsyncStorage.removeItem("overdueAlertShown");
     await supabase.auth.signOut();
     router.replace("/login");
   };
