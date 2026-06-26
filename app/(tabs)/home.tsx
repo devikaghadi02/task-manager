@@ -15,7 +15,6 @@ import {
   View,
 } from "react-native";
 import ProgressRing from "../../components/ProgressRing";
-import ReorderableTaskList from "../../components/ReorderableTaskList";
 import SwipeableTask from "../../components/SwipeableTask";
 import { supabase } from "../../lib/supabase";
 import { useTheme } from "../../lib/ThemeContext";
@@ -110,6 +109,8 @@ export default function HomeScreen() {
   const [selectedStatus, setSelectedStatus] = useState("All");
   const [selectedPriority, setSelectedPriority] = useState("All");
   const [selectedCategory, setSelectedCategory] = useState("All");
+  const [selectedDateRange, setSelectedDateRange] = useState("All");
+  const [selectedUser, setSelectedUser] = useState("All");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [sortBy, setSortBy] = useState<"dueDate" | "priority" | "created">(
     "dueDate",
@@ -257,8 +258,7 @@ export default function HomeScreen() {
       if (admin) {
         const { data: tasksData, error: fetchError } = await supabase
           .from("tasks")
-          .select("*")
-          .eq("completed", false);
+          .select("*");
         if (fetchError) throw fetchError;
 
         const { data: profilesData } = await supabase
@@ -294,7 +294,6 @@ export default function HomeScreen() {
             .from("tasks")
             .select("*")
             .eq("user_id", user.id)
-            .eq("completed", false)
             .order("created_at", { ascending: false });
 
           if (fetchError) throw fetchError;
@@ -340,36 +339,21 @@ export default function HomeScreen() {
         })
         .eq("id", task.id);
 
-      if (nowCompleted) {
-        if (isAdmin) {
-          setSections(
-            sections
-              .map((s) => ({
-                ...s,
-                data: s.data.filter((t) => t.id !== task.id),
-              }))
-              .filter((s) => s.data.length > 0),
-          );
-        } else {
-          setTasks(tasks.filter((t) => t.id !== task.id));
-        }
-      } else {
-        if (isAdmin) {
-          setSections(
-            sections.map((s) => ({
-              ...s,
-              data: s.data.map((t) =>
-                t.id === task.id ? { ...t, completed: false } : t,
-              ),
-            })),
-          );
-        } else {
-          setTasks(
-            tasks.map((t) =>
-              t.id === task.id ? { ...t, completed: false } : t,
+      if (isAdmin) {
+        setSections(
+          sections.map((s) => ({
+            ...s,
+            data: s.data.map((t) =>
+              t.id === task.id ? { ...t, completed: nowCompleted } : t,
             ),
-          );
-        }
+          })),
+        );
+      } else {
+        setTasks(
+          tasks.map((t) =>
+            t.id === task.id ? { ...t, completed: nowCompleted } : t,
+          ),
+        );
       }
       fetchOverallStats(isAdmin);
     } catch (e) {
@@ -523,6 +507,11 @@ export default function HomeScreen() {
     return ["All", ...Array.from(new Set(cats))];
   }, [tasks, sections, isAdmin]);
 
+  const userOptions = useMemo(() => {
+    if (!isAdmin) return ["All"];
+    return ["All", ...sections.map((s) => s.title)];
+  }, [sections, isAdmin]);
+
   const progressStats = useMemo(() => {
     const percentage =
       overallStats.total > 0
@@ -549,7 +538,7 @@ export default function HomeScreen() {
   }, [tasks, sections, isAdmin]);
 
   const filterTask = useCallback(
-    (task: Task) => {
+    (task: Task, sectionTitle?: string) => {
       if (
         searchText &&
         !task.title.toLowerCase().includes(searchText.toLowerCase())
@@ -561,9 +550,38 @@ export default function HomeScreen() {
         return false;
       if (selectedCategory !== "All" && task.category !== selectedCategory)
         return false;
+      if (
+        selectedUser !== "All" &&
+        sectionTitle &&
+        sectionTitle !== selectedUser
+      )
+        return false;
+
+      if (selectedDateRange !== "All") {
+        if (!task.due_date) return false;
+        const due = new Date(task.due_date).getTime();
+        const now = Date.now();
+        const startOfToday = new Date().setHours(0, 0, 0, 0);
+
+        if (selectedDateRange === "Today") {
+          const endOfToday = startOfToday + 24 * 60 * 60 * 1000;
+          if (due < startOfToday || due >= endOfToday) return false;
+        } else if (selectedDateRange === "Last 7 Days") {
+          if (due < now - 7 * 24 * 60 * 60 * 1000 || due > now) return false;
+        } else if (selectedDateRange === "Last 30 Days") {
+          if (due < now - 30 * 24 * 60 * 60 * 1000 || due > now) return false;
+        }
+      }
       return true;
     },
-    [searchText, selectedStatus, selectedPriority, selectedCategory],
+    [
+      searchText,
+      selectedStatus,
+      selectedPriority,
+      selectedCategory,
+      selectedUser,
+      selectedDateRange,
+    ],
   );
 
   const PRIORITY_RANK: Record<string, number> = { High: 0, Medium: 1, Low: 2 };
@@ -592,7 +610,7 @@ export default function HomeScreen() {
   );
 
   const filteredTasks = useMemo(
-    () => sortTasks(tasks.filter(filterTask)),
+    () => sortTasks(tasks.filter((t) => filterTask(t))),
     [tasks, filterTask, sortTasks],
   );
 
@@ -615,7 +633,9 @@ export default function HomeScreen() {
       sections
         .map((section) => ({
           ...section,
-          data: sortTasks(section.data.filter(filterTask)),
+          data: sortTasks(
+            section.data.filter((t) => filterTask(t, section.title)),
+          ),
         }))
         .filter((section) => section.data.length > 0),
     [sections, filterTask, sortTasks],
@@ -624,7 +644,9 @@ export default function HomeScreen() {
   const hasActiveFilters =
     selectedStatus !== "All" ||
     selectedPriority !== "All" ||
-    selectedCategory !== "All";
+    selectedCategory !== "All" ||
+    selectedDateRange !== "All" ||
+    selectedUser !== "All";
 
   const SearchAndFilters = (
     <>
@@ -749,6 +771,20 @@ export default function HomeScreen() {
             colorize
             colors={colors}
           />
+          <FilterChips
+            options={["All", "Today", "Last 7 Days", "Last 30 Days"]}
+            selected={selectedDateRange}
+            onSelect={setSelectedDateRange}
+            colors={colors}
+          />
+          {isAdmin && (
+            <FilterChips
+              options={userOptions}
+              selected={selectedUser}
+              onSelect={setSelectedUser}
+              colors={colors}
+            />
+          )}
         </>
       )}
     </>
@@ -1149,7 +1185,7 @@ export default function HomeScreen() {
           data={filteredSections}
           keyExtractor={(section) => section.userId}
           keyboardShouldPersistTaps="always"
-          scrollEnabled={selectionMode}
+          style={{ flex: 1 }}
           renderItem={({ item: section }) => (
             <View>
               <View
@@ -1172,19 +1208,9 @@ export default function HomeScreen() {
                   {section.data.length} tasks
                 </Text>
               </View>
-              {selectionMode ? (
-                section.data.map((task) => (
-                  <TaskCard key={task.id} item={task} />
-                ))
-              ) : (
-                <ReorderableTaskList
-                  tasks={section.data}
-                  renderItem={(item) => <TaskCard item={item} />}
-                  onReorder={(reordered) =>
-                    reorderSectionTasks(section.userId, reordered)
-                  }
-                />
-              )}
+              {section.data.map((task) => (
+                <TaskCard key={task.id} item={task} />
+              ))}
             </View>
           )}
           ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
@@ -1247,6 +1273,7 @@ export default function HomeScreen() {
         data={filteredTasks}
         keyExtractor={(item) => item.id}
         keyboardShouldPersistTaps="always"
+        style={{ flex: 1 }}
         renderItem={({ item }) => <TaskCard item={item} />}
         ListEmptyComponent={
           <Text style={[styles.emptyText, { color: colors.subtext }]}>
