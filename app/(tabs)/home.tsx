@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -19,7 +20,6 @@ import SwipeableTask from "../../components/SwipeableTask";
 import { supabase } from "../../lib/supabase";
 import { useTheme } from "../../lib/ThemeContext";
 import { getCategoryColor, getUserDisplayName } from "../../lib/userHelper";
-
 type Task = {
   id: string;
   title: string;
@@ -109,7 +109,11 @@ export default function HomeScreen() {
   const [selectedStatus, setSelectedStatus] = useState("All");
   const [selectedPriority, setSelectedPriority] = useState("All");
   const [selectedCategory, setSelectedCategory] = useState("All");
-  const [selectedDateRange, setSelectedDateRange] = useState("All");
+  const [fromDate, setFromDate] = useState<Date | null>(null);
+  const [toDate, setToDate] = useState<Date | null>(null);
+  const [showFromPicker, setShowFromPicker] = useState(false);
+  const [showToPicker, setShowToPicker] = useState(false);
+  const [userModalVisible, setUserModalVisible] = useState(false);
   const [selectedUser, setSelectedUser] = useState("All");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [sortBy, setSortBy] = useState<"dueDate" | "priority" | "created">(
@@ -557,19 +561,18 @@ export default function HomeScreen() {
       )
         return false;
 
-      if (selectedDateRange !== "All") {
+      if (fromDate || toDate) {
         if (!task.due_date) return false;
         const due = new Date(task.due_date).getTime();
-        const now = Date.now();
-        const startOfToday = new Date().setHours(0, 0, 0, 0);
-
-        if (selectedDateRange === "Today") {
-          const endOfToday = startOfToday + 24 * 60 * 60 * 1000;
-          if (due < startOfToday || due >= endOfToday) return false;
-        } else if (selectedDateRange === "Last 7 Days") {
-          if (due < now - 7 * 24 * 60 * 60 * 1000 || due > now) return false;
-        } else if (selectedDateRange === "Last 30 Days") {
-          if (due < now - 30 * 24 * 60 * 60 * 1000 || due > now) return false;
+        if (fromDate) {
+          const from = new Date(fromDate);
+          from.setHours(0, 0, 0, 0);
+          if (due < from.getTime()) return false;
+        }
+        if (toDate) {
+          const to = new Date(toDate);
+          to.setHours(23, 59, 59, 999);
+          if (due > to.getTime()) return false;
         }
       }
       return true;
@@ -580,7 +583,8 @@ export default function HomeScreen() {
       selectedPriority,
       selectedCategory,
       selectedUser,
-      selectedDateRange,
+      fromDate,
+      toDate,
     ],
   );
 
@@ -645,7 +649,8 @@ export default function HomeScreen() {
     selectedStatus !== "All" ||
     selectedPriority !== "All" ||
     selectedCategory !== "All" ||
-    selectedDateRange !== "All" ||
+    fromDate !== null ||
+    toDate !== null ||
     selectedUser !== "All";
 
   const SearchAndFilters = (
@@ -771,19 +776,105 @@ export default function HomeScreen() {
             colorize
             colors={colors}
           />
-          <FilterChips
-            options={["All", "Today", "Last 7 Days", "Last 30 Days"]}
-            selected={selectedDateRange}
-            onSelect={setSelectedDateRange}
-            colors={colors}
-          />
-          {isAdmin && (
-            <FilterChips
-              options={userOptions}
-              selected={selectedUser}
-              onSelect={setSelectedUser}
-              colors={colors}
+          <View style={styles.dateRangeRow}>
+            <Text style={[styles.dateRangeLabel, { color: colors.subtext }]}>
+              Due from
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.dateBtn,
+                { borderColor: colors.border, backgroundColor: colors.card },
+              ]}
+              onPress={() => setShowFromPicker(true)}
+            >
+              <Text
+                style={[
+                  styles.dateBtnText,
+                  { color: fromDate ? colors.text : colors.subtext },
+                ]}
+              >
+                {fromDate ? fromDate.toLocaleDateString() : "Start date"}
+              </Text>
+            </TouchableOpacity>
+            <Text style={[styles.dateRangeLabel, { color: colors.subtext }]}>
+              to
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.dateBtn,
+                { borderColor: colors.border, backgroundColor: colors.card },
+              ]}
+              onPress={() => setShowToPicker(true)}
+            >
+              <Text
+                style={[
+                  styles.dateBtnText,
+                  { color: toDate ? colors.text : colors.subtext },
+                ]}
+              >
+                {toDate ? toDate.toLocaleDateString() : "End date"}
+              </Text>
+            </TouchableOpacity>
+            {(fromDate || toDate) && (
+              <TouchableOpacity
+                onPress={() => {
+                  setFromDate(null);
+                  setToDate(null);
+                }}
+                style={styles.dateClear}
+              >
+                <Text style={styles.dateClearText}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {showFromPicker && (
+            <DateTimePicker
+              value={fromDate || new Date()}
+              mode="date"
+              display="default"
+              onChange={(_, date) => {
+                setShowFromPicker(false);
+                if (date) setFromDate(date);
+              }}
             />
+          )}
+          {showToPicker && (
+            <DateTimePicker
+              value={toDate || new Date()}
+              mode="date"
+              display="default"
+              onChange={(_, date) => {
+                setShowToPicker(false);
+                if (date) setToDate(date);
+              }}
+            />
+          )}
+
+          {isAdmin && (
+            <TouchableOpacity
+              style={[
+                styles.userPickerBtn,
+                {
+                  borderColor:
+                    selectedUser !== "All" ? "#6200ee" : colors.border,
+                  backgroundColor: colors.card,
+                },
+              ]}
+              onPress={() => setUserModalVisible(true)}
+            >
+              <Text
+                style={[
+                  styles.userPickerText,
+                  {
+                    color: selectedUser !== "All" ? "#6200ee" : colors.subtext,
+                  },
+                ]}
+              >
+                👤 {selectedUser === "All" ? "All users" : selectedUser}
+              </Text>
+              <Text style={{ color: colors.subtext, fontSize: 12 }}>▾</Text>
+            </TouchableOpacity>
           )}
         </>
       )}
@@ -876,6 +967,64 @@ export default function HomeScreen() {
       </View>
     ) : null;
 
+  const UserPickerModal = () => (
+    <Modal
+      visible={userModalVisible}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setUserModalVisible(false)}
+    >
+      <View style={styles.userModalOverlay}>
+        <View
+          style={[
+            styles.userModalSheet,
+            { backgroundColor: colors.background },
+          ]}
+        >
+          <View style={styles.userModalHeader}>
+            <Text style={[styles.userModalTitle, { color: colors.text }]}>
+              Select User
+            </Text>
+            <TouchableOpacity onPress={() => setUserModalVisible(false)}>
+              <Text style={styles.userModalClose}>Done</Text>
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={["All", ...sections.map((s) => s.title)]}
+            keyExtractor={(item) => item}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[
+                  styles.userModalRow,
+                  { borderBottomColor: colors.border },
+                  selectedUser === item && styles.userModalRowActive,
+                ]}
+                onPress={() => {
+                  setSelectedUser(item);
+                  setUserModalVisible(false);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.userModalRowText,
+                    { color: selectedUser === item ? "#6200ee" : colors.text },
+                  ]}
+                >
+                  {item === "All" ? "All users" : item}
+                </Text>
+                {selectedUser === item && (
+                  <Text style={{ color: "#6200ee", fontWeight: "bold" }}>
+                    ✓
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+
   const Sidebar = () => (
     <Modal
       visible={sidebarOpen}
@@ -921,52 +1070,6 @@ export default function HomeScreen() {
                   <Text style={styles.sidebarAdminText}>Admin</Text>
                 </View>
               )}
-            </View>
-
-            <View
-              style={[
-                styles.sidebarDivider,
-                { backgroundColor: colors.border },
-              ]}
-            />
-
-            <View style={styles.sidebarSectionLabel}>
-              <Text
-                style={[
-                  styles.sidebarSectionLabelText,
-                  { color: colors.subtext },
-                ]}
-              >
-                Date Range
-              </Text>
-            </View>
-            <View style={styles.sidebarChipsWrap}>
-              {["All", "Today", "Last 7 Days", "Last 30 Days"].map((opt) => {
-                const isSelected = selectedDateRange === opt;
-                return (
-                  <TouchableOpacity
-                    key={opt}
-                    style={[
-                      styles.sidebarChip,
-                      isSelected
-                        ? styles.sidebarChipActive
-                        : { borderColor: colors.border },
-                    ]}
-                    onPress={() => setSelectedDateRange(opt)}
-                  >
-                    <Text
-                      style={[
-                        styles.sidebarChipText,
-                        isSelected
-                          ? styles.sidebarChipTextActive
-                          : { color: colors.subtext },
-                      ]}
-                    >
-                      {opt}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
             </View>
 
             <View
@@ -1181,13 +1284,14 @@ export default function HomeScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <Sidebar />
+        <UserPickerModal />
         <View style={styles.header}>
           <View style={styles.titleRow}>
             <TouchableOpacity onPress={openSidebar} style={styles.hamburger}>
               <Text style={[styles.hamburgerText, { color: colors.text }]}>
                 ☰
               </Text>
-              {selectedDateRange !== "All" && (
+              {(fromDate !== null || toDate !== null) && (
                 <View style={styles.hamburgerBadge} />
               )}
             </TouchableOpacity>
@@ -1282,13 +1386,14 @@ export default function HomeScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Sidebar />
+      <UserPickerModal />
       <View style={styles.header}>
         <View style={styles.titleRow}>
           <TouchableOpacity onPress={openSidebar} style={styles.hamburger}>
             <Text style={[styles.hamburgerText, { color: colors.text }]}>
               ☰
             </Text>
-            {selectedDateRange !== "All" && (
+            {(fromDate !== null || toDate !== null) && (
               <View style={styles.hamburgerBadge} />
             )}
           </TouchableOpacity>
@@ -1941,5 +2046,94 @@ const styles = StyleSheet.create({
   },
   sidebarChipTextActive: {
     color: "#000000",
+  },
+  dateRangeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  dateRangeLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    marginHorizontal: 4,
+  },
+  dateBtn: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  dateBtnText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  dateClear: {
+    paddinghorizontal: 8,
+    paddingVertical: 6,
+  },
+  dateClearText: {
+    color: "#c62828",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  userPickerBtn: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  userPickerText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  userModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "flex-end",
+  },
+  userModalSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingTop: 20,
+    paddingBottom: 40,
+    maxHeight: "60%",
+  },
+  userModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  userModalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  userModalClose: {
+    fontSize: 15,
+    color: "#6200ee",
+    fontWeight: "600",
+  },
+  userModalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 14,
+    borderBottomWidth: 0.5,
+  },
+  userModalRowActive: {
+    backgroundColor: "#f3e8ff",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+  },
+  userModalRowText: {
+    fontSize: 15,
+    fontWeight: "500",
   },
 });
