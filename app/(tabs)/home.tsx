@@ -930,6 +930,52 @@ export default function HomeScreen() {
               ]}
             />
 
+            <View style={styles.sidebarSectionLabel}>
+              <Text
+                style={[
+                  styles.sidebarSectionLabelText,
+                  { color: colors.subtext },
+                ]}
+              >
+                Date Range
+              </Text>
+            </View>
+            <View style={styles.sidebarChipsWrap}>
+              {["All", "Today", "Last 7 Days", "Last 30 Days"].map((opt) => {
+                const isSelected = selectedDateRange === opt;
+                return (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[
+                      styles.sidebarChip,
+                      isSelected
+                        ? styles.sidebarChipActive
+                        : { borderColor: colors.border },
+                    ]}
+                    onPress={() => setSelectedDateRange(opt)}
+                  >
+                    <Text
+                      style={[
+                        styles.sidebarChipText,
+                        isSelected
+                          ? styles.sidebarChipTextActive
+                          : { color: colors.subtext },
+                      ]}
+                    >
+                      {opt}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View
+              style={[
+                styles.sidebarDivider,
+                { backgroundColor: colors.border },
+              ]}
+            />
+
             <TouchableOpacity
               style={styles.sidebarItem}
               onPress={() => {
@@ -1141,6 +1187,9 @@ export default function HomeScreen() {
               <Text style={[styles.hamburgerText, { color: colors.text }]}>
                 ☰
               </Text>
+              {selectedDateRange !== "All" && (
+                <View style={styles.hamburgerBadge} />
+              )}
             </TouchableOpacity>
             <Text style={[styles.title, { color: colors.text }]}>Tasks</Text>
           </View>
@@ -1239,6 +1288,9 @@ export default function HomeScreen() {
             <Text style={[styles.hamburgerText, { color: colors.text }]}>
               ☰
             </Text>
+            {selectedDateRange !== "All" && (
+              <View style={styles.hamburgerBadge} />
+            )}
           </TouchableOpacity>
           <Text style={[styles.title, { color: colors.text }]}>My Tasks</Text>
         </View>
@@ -1762,6 +1814,7 @@ const styles = StyleSheet.create({
   hamburger: {
     marginRight: 12,
     padding: 4,
+    position: "relative",
   },
   hamburgerText: {
     fontSize: 22,
@@ -1844,5 +1897,49 @@ const styles = StyleSheet.create({
   reactionBadge: {
     fontSize: 18,
     marginLeft: 6,
+  },
+  hamburgerBadge: {
+    position: "absolute",
+    top: 2,
+    right: 2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#c62828",
+  },
+  sidebarSectionLabel: {
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
+  siebarSectionLabelText: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  sidebarChipsWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  sidebarChip: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  siebarChipActive: {
+    backgroundColor: "#6200ee",
+    borderColor: "#6200ee",
+  },
+  sidebarChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  sidebarChipTextActive: {
+    color: "#000000",
   },
 });
