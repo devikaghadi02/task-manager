@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import { useFocusEffect } from "@react-navigation/native";
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -20,6 +21,7 @@ import SwipeableTask from "../../components/SwipeableTask";
 import { supabase } from "../../lib/supabase";
 import { useTheme } from "../../lib/ThemeContext";
 import { getCategoryColor, getUserDisplayName } from "../../lib/userHelper";
+
 type Task = {
   id: string;
   title: string;
@@ -137,6 +139,11 @@ export default function HomeScreen() {
   useEffect(() => {
     getCurrentUser();
   }, []);
+  useFocusEffect(
+    useCallback(() => {
+      getCurrentUser();
+    }, []),
+  );
 
   const getCurrentUser = async () => {
     try {
@@ -299,6 +306,7 @@ export default function HomeScreen() {
             .from("tasks")
             .select("*")
             .eq("user_id", user.id)
+            .eq("completed", false)
             .order("created_at", { ascending: false });
 
           if (fetchError) throw fetchError;
