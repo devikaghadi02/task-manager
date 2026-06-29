@@ -399,7 +399,6 @@ const styles = StyleSheet.create({
   },
   todayLink: {
     fontSize: 14,
-    color: "#6200ee",
     fontWeight: "600",
   },
   calendarCard: {

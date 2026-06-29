@@ -106,7 +106,7 @@ export default function HomeScreen() {
   const { colors } = useTheme();
 
   const [searchText, setSearchText] = useState("");
-  const [selectedStatus, setSelectedStatus] = useState("All");
+  const [selectedStatus, setSelectedStatus] = useState("Pending");
   const [selectedPriority, setSelectedPriority] = useState("All");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [fromDate, setFromDate] = useState<Date | null>(null);
@@ -262,7 +262,8 @@ export default function HomeScreen() {
       if (admin) {
         const { data: tasksData, error: fetchError } = await supabase
           .from("tasks")
-          .select("*");
+          .select("*")
+          .eq("completed", false);
         if (fetchError) throw fetchError;
 
         const { data: profilesData } = await supabase
@@ -1007,7 +1008,9 @@ export default function HomeScreen() {
                 <Text
                   style={[
                     styles.userModalRowText,
-                    { color: selectedUser === item ? "#6200ee" : colors.text },
+                    {
+                      color: selectedUser === item ? "#6200ee" : colors.text,
+                    },
                   ]}
                 >
                   {item === "All" ? "All users" : item}
@@ -1264,7 +1267,7 @@ export default function HomeScreen() {
   if (loading) {
     return (
       <View style={[styles.centered, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color="#6200ee" />
+        <ActivityIndicator size="large" color={"#6200ee"} />
         <Text style={[styles.loadingText, { color: colors.subtext }]}>
           Loading tasks...
         </Text>

@@ -12,7 +12,6 @@ import {
   View,
 } from "react-native";
 import { supabase } from "../../lib/supabase";
-import { useTheme } from "../../lib/ThemeContext";
 
 export default function SettingsScreen() {
   const { isDark, toggleDark, colors } = useTheme();

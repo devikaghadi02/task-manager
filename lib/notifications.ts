@@ -25,7 +25,7 @@ export async function registerForNotifications() {
       name: "default",
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: "#6200ee",
+      lightColor: "#FF" + ColorSpace.accent.replace("#", ""),
     });
   }
 

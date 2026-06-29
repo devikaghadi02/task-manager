@@ -91,6 +91,10 @@ export default function DetailsScreen() {
   const [depPickerVisible, setDepPickerVisible] = useState(false);
   const [depSearchText, setDepSearchText] = useState("");
   const [allTasks, setAllTasks] = useState<TaskOption[]>([]);
+  const [reassignPickerVisible, setReassignPickerVisible] = useState(false);
+  const [allUsers, setAllUsers] = useState<
+    { id: String; full_name: string | null; email: string }[]
+  >([]);
 
   const refetchTask = useCallback(async () => {
     if (!id) return;
@@ -182,22 +186,36 @@ export default function DetailsScreen() {
     }
   };
 
-  // Fetch all other tasks owned by this user for the dependency picker
-  const fetchAllTasksForPicker = async () => {
+  const fetchAllUsersForPicker = async () => {
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
       const { data, error } = await supabase
-        .from("tasks")
-        .select("id, title, completed")
-        .eq("user_id", user.id)
-        .neq("id", String(id))
-        .order("created_at", { ascending: false });
-      if (!error && data) setAllTasks(data as TaskOption[]);
+        .from("profiles")
+        .select("id, full_name, email");
+      if (!error && data) setAllUsers(data);
     } catch (e) {
-      console.log("Error fetching tasks for picker:", e);
+      console.log("Error fetching users for picker:", e);
+    }
+  };
+
+  const openReassignPicker = async () => {
+    await fetchAllUsersForPicker();
+    setReassignPickerVisible(true);
+  };
+
+  const reassignTask = async (newUserId: string, newUserName: string) => {
+    try {
+      const { error } = await supabase
+        .from("tasks")
+        .update({ user_id: newUserId })
+        .eq("id", String(id));
+      if (error) {
+        Alert.alert("Error", error.message);
+        return;
+      }
+      setUserName(newUserName);
+      setReassignPickerVisible(false);
+    } catch (e) {
+      console.log("Error reassigning task: ", e);
     }
   };
 
@@ -564,6 +582,55 @@ export default function DetailsScreen() {
         </View>
       </Modal>
 
+      <Modal
+        visible={reassignPickerVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setReassignPickerVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[styles.modalSheet, { backgroundColor: colors.background }]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Reassign to
+              </Text>
+              <TouchableOpacity onPress={() => setReassignPickerVisible(false)}>
+                <Text style={styles.modalClose}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={allUsers}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => {
+                const name = getUserDisplayName(item.id, name);
+                return (
+                  <TouchableOpacity
+                    style={[
+                      styles.depPickerRow,
+                      { borderBottomColor: colors.border },
+                    ]}
+                    onPress={() => reassignTask(item.id, name)}
+                  >
+                    <Text
+                      style={[styles.depPickerTitle, { color: colors.text }]}
+                    >
+                      {name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }}
+              ListEmptyComponent={
+                <Text style={[styles.depEmpty, { color: colors.subtext }]}>
+                  No users found.
+                </Text>
+              }
+            />
+          </View>
+        </View>
+      </Modal>
+
       <FlatList
         style={{ flex: 1, backgroundColor: colors.background }}
         contentContainerStyle={styles.container}
@@ -850,9 +917,17 @@ export default function DetailsScreen() {
                 <Text style={[styles.metaLabel, { color: colors.subtext }]}>
                   Assigned to
                 </Text>
-                <Text style={[styles.metaValue, { color: colors.text }]}>
-                  {userName || String(userId).substring(0, 8) + "..."}
-                </Text>
+                {isAdmin ? (
+                  <TouchableOpacity onPress={openReassignPicker}>
+                    <Text style={[styles.metaValue, styles.metaValueLink]}>
+                      {userName || String(userId).substring(0, 8) + "..."} '
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={[styles.metaValue, { color: colors.text }]}>
+                    {userName || String(userId).substring(0, 8) + "..."}
+                  </Text>
+                )}
               </View>
             </View>
 
@@ -1171,6 +1246,7 @@ const styles = StyleSheet.create({
   },
   metaLabel: { fontSize: 13, fontWeight: "500" },
   metaValue: { fontSize: 14, fontWeight: "600" },
+  metaValueLink: { color: "#6200ee" },
   categoryBadge: {
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -1248,7 +1324,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  checkboxChecked: { backgroundColor: "#6200ee", borderColor: "#6200ee" },
+  checkboxChecked: {
+    backgroundColor: "#6200ee",
+    borderColor: "#6200ee",
+  },
   checkmark: { color: "#fff", fontSize: 13, fontWeight: "bold" },
   subtaskTitle: { flex: 1, fontSize: 15 },
   subtaskCompleted: { textDecorationLine: "line-through", opacity: 0.5 },
