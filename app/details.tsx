@@ -131,6 +131,7 @@ export default function DetailsScreen() {
   const [allUsers, setAllUsers] = useState<
     { id: String; full_name: string | null; email: string }[]
   >([]);
+  const [reviewStatus, setReviewStatus] = useState<string | null>(null);
 
   const refetchTask = useCallback(async () => {
     if (!id) return;
@@ -151,6 +152,7 @@ export default function DetailsScreen() {
         setTaskCreatedAt(data.created_at ?? "");
         setTaskCompletedAt(data.completed_at ?? null);
         setReactionState(data.reaction ?? null);
+        setReviewStatus(data.review_status ?? null);
 
         // Load blocking task details if a dependency is set
         if (data.blocked_by) {
@@ -470,19 +472,96 @@ export default function DetailsScreen() {
     setLoading(true);
     try {
       const nowCompleted = !isCompleted;
-      const newCompletedAt = nowCompleted ? new Date().toISOString() : null;
 
+      if (isAdmin) {
+        //Admin marking complete/pending directly skips review entirely
+        const newCompletedAt = nowCompleted ? new Date().toISOString() : null;
+        const { error } = await supabase
+          .from("tasks")
+          .update({
+            completed: nowCompleted,
+            completed_at: newCompletedAt,
+            review_status: nowCompleted ? "approved" : null,
+          })
+          .eq("id", String(id));
+
+        if (error) throw error;
+        setIsCompleted(nowCompleted);
+        setTaskCompletedAt(newCompletedAt);
+        logHistory(String(id), nowCompleted ? "completed" : "reopened");
+      } else if (nowCompleted) {
+        //Regular user marking complete -> goes to pending review, not actually completed yet
+        const { error } = await supabase
+          .from("tasks")
+          .update({ review_status: "pending_review" })
+          .eq("id", String(id));
+
+        if (error) throw error;
+        setIsCompleted(true); //visually looks done to the user
+        logHistory(String(id), "submitted for review ");
+      } else {
+        //User un-marking befire admin reviewed - just clear review status
+        const { error } = await supabase
+          .from("tasks")
+          .update({ review_status: null })
+          .eq("id", String(id));
+
+        if (error) throw error;
+        setIsCompleted(false);
+        logHistory(String(id), "reopened");
+      }
+    } catch (e: any) {
+      Alert.alert("Error", "Failed to update task status.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const approveTask = async () => {
+    setLoading(true);
+    try {
+      const newCompletedAt = new Date().toISOString();
+      const { error, data } = await supabase
+        .from("tasks")
+        .update({
+          completed: true,
+          completed_at: newCompletedAt,
+          review_status: "approved",
+        })
+        .eq("id", String(id));
+      console.log("Approve result:", { error, data });
+      if (error) throw error;
+      setIsCompleted(true);
+      setTaskCompletedAt(newCompletedAt);
+      setReviewStatus("approved");
+      logHistory(String(id), "approved");
+    } catch (e) {
+      console.log("Approve exception:", e);
+      Alert.alert("Error", "Failed to approve task.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const rejectTask = async () => {
+    setLoading(true);
+    try {
       const { error } = await supabase
         .from("tasks")
-        .update({ completed: nowCompleted, completed_at: newCompletedAt })
+        .update({
+          completed: false,
+          completed_at: null,
+          review_status: "rejected",
+        })
         .eq("id", String(id));
 
       if (error) throw error;
-      setIsCompleted(nowCompleted);
-      setTaskCompletedAt(newCompletedAt);
-      logHistory(String(id), nowCompleted ? "completed" : "reopened");
-    } catch (e: any) {
-      Alert.alert("Error", "Failed to update task status.");
+      setIsCompleted(false);
+      setTaskCompletedAt(null);
+      setReviewStatus("rejected");
+      logHistory(String(id), "rejected-sent back to pending");
+    } catch (e) {
+      Alert.alert("Error", "Failed to reject task.");
     } finally {
       setLoading(false);
     }
@@ -743,11 +822,14 @@ export default function DetailsScreen() {
               style={[
                 styles.statusBadge,
                 {
-                  backgroundColor: isCompleted
-                    ? "#e8f5e9"
-                    : isBlocked
-                      ? "#fff8e1"
-                      : "#fff3e0",
+                  backgroundColor:
+                    isAdmin && reviewStatus === "pending_review"
+                      ? "#ede7f6"
+                      : isCompleted
+                        ? "#e8f5e9"
+                        : isBlocked
+                          ? "#fff8e1"
+                          : "#fff3e0",
                 },
               ]}
             >
@@ -755,15 +837,24 @@ export default function DetailsScreen() {
                 style={[
                   styles.statusText,
                   {
-                    color: isCompleted
-                      ? "#2e7d32"
-                      : isBlocked
-                        ? "#b45309"
-                        : "#e65100",
+                    color:
+                      isAdmin && reviewStatus === "pending_review"
+                        ? "#5e35b1"
+                        : isCompleted
+                          ? "#2e7d32"
+                          : isBlocked
+                            ? "#b45309"
+                            : "#e65100",
                   },
                 ]}
               >
-                {isCompleted ? "Completed" : isBlocked ? "Blocked" : "Pending"}
+                {isAdmin && reviewStatus === "pending_review"
+                  ? "Pending Review"
+                  : isCompleted
+                    ? "Completed"
+                    : isBlocked
+                      ? "Blocked"
+                      : "Pending"}
               </Text>
             </View>
             {/* Reaction row — admin can react to completed tasks */}
@@ -995,50 +1086,103 @@ export default function DetailsScreen() {
             </View>
 
             <View style={styles.actions}>
-              <TouchableOpacity
-                style={[
-                  styles.actionButton,
-                  isCompleted
-                    ? styles.pendingButton
-                    : isBlocked
-                      ? styles.blockedButton
-                      : styles.completeButton,
-                ]}
-                onPress={toggleCompletion}
-                disabled={loading}
-              >
-                <Text style={styles.actionButtonText}>
-                  {loading
-                    ? "Wait..."
-                    : isCompleted
-                      ? "Mark Pending"
-                      : isBlocked
-                        ? "Blocked"
-                        : "Mark Complete"}
-                </Text>
-              </TouchableOpacity>
-
-              {!isCompleted && (
+              {isAdmin && reviewStatus === "pending_review" ? (
+                <>
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.completeButton]}
+                    onPress={approveTask}
+                    disabled={loading}
+                  >
+                    <Text style={styles.actionButtonText}>
+                      {loading ? "Wait..." : "Approve"}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.deleteButton]}
+                    onPress={rejectTask}
+                    disabled={loading}
+                  >
+                    <Text style={styles.actionButtonText}>
+                      {loading ? "Wait..." : "Reject"}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              ) : isAdmin && reviewStatus === "approved" ? (
                 <TouchableOpacity
-                  style={[styles.actionButton, styles.deleteButton]}
-                  onPress={() => {
-                    Alert.alert(
-                      "Delete Task",
-                      "Are you sure you want to delete this task?",
-                      [
-                        { text: "Cancel", style: "cancel" },
-                        {
-                          text: "Delete",
-                          style: "destructive",
-                          onPress: deleteTask,
-                        },
-                      ],
-                    );
+                  style={[styles.actionButton, styles.pendingButton]}
+                  onPress={async () => {
+                    setLoading(true);
+                    try {
+                      const { error } = await supabase
+                        .from("tasks")
+                        .update({ review_status: "pending_review" })
+                        .eq("id", String(id));
+                      if (error) throw error;
+                      setReviewStatus("pending_review");
+                      logHistory(
+                        String(id),
+                        "approval undone — back to review",
+                      );
+                    } catch (e) {
+                      Alert.alert("Error", "Failed to undo approval.");
+                    } finally {
+                      setLoading(false);
+                    }
                   }}
                   disabled={loading}
                 >
-                  <Text style={styles.actionButtonText}>Delete Task</Text>
+                  <Text style={styles.actionButtonText}>
+                    {loading ? "Wait..." : "✓ Approved"}
+                  </Text>
                 </TouchableOpacity>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={[
+                      styles.actionButton,
+                      isCompleted
+                        ? styles.pendingButton
+                        : isBlocked
+                          ? styles.blockedButton
+                          : styles.completeButton,
+                    ]}
+                    onPress={toggleCompletion}
+                    disabled={loading}
+                  >
+                    <Text style={styles.actionButtonText}>
+                      {loading
+                        ? "Wait..."
+                        : isCompleted
+                          ? "Mark Pending"
+                          : isBlocked
+                            ? "Blocked"
+                            : "Mark Complete"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {!isCompleted && (
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.deleteButton]}
+                      onPress={() => {
+                        Alert.alert(
+                          "Delete Task",
+                          "Are you sure you want to delete this task?",
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            {
+                              text: "Delete",
+                              style: "destructive",
+                              onPress: deleteTask,
+                            },
+                          ],
+                        );
+                      }}
+                      disabled={loading}
+                    >
+                      <Text style={styles.actionButtonText}>Delete Task</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
               )}
             </View>
 

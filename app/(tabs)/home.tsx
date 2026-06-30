@@ -32,6 +32,7 @@ type Task = {
   category: string | null;
   task_order?: number;
   reaction?: string | null;
+  review_status?: string | null;
 };
 
 type Section = {
@@ -311,7 +312,10 @@ export default function HomeScreen() {
             .order("created_at", { ascending: false });
 
           if (fetchError) throw fetchError;
-          setTasks(data as Task[]);
+          const visibleTasks = (data as Task[]).filter(
+            (t) => t.review_status !== "pending_review",
+          );
+          setTasks(visibleTasks);
         }
       }
       setLoading(false);
@@ -1322,6 +1326,16 @@ export default function HomeScreen() {
               </Text>
             </View>
           )}
+          {isAdmin && item.review_status === "pending_review" && (
+            <View style={styles.reviewBadge}>
+              <Text style={styles.reviewBadgeText}>Pending Review</Text>
+            </View>
+          )}
+          {isAdmin && item.review_status === "rejected" && (
+            <View style={styles.rejectedBadge}>
+              <Text style={styles.rejectedBadgeText}>Rejected</Text>
+            </View>
+          )}
           {item.reaction && (
             <Text style={styles.reactionBadge}>{item.reaction}</Text>
           )}
@@ -2219,5 +2233,29 @@ const styles = StyleSheet.create({
   userModalRowText: {
     fontSize: 15,
     fontWeight: "500",
+  },
+  reviewBadge: {
+    backgroundColor: "#ede7f6",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginLeft: 8,
+  },
+  reviewBadgeText: {
+    fontSize: 10,
+    fontWeight: "bold",
+    color: "#5e35b1",
+  },
+  rejectedBadge: {
+    backgroundColor: "#ffebee",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginLeft: 8,
+  },
+  rejectedBadgeText: {
+    fontSize: 10,
+    fontWeight: "bold",
+    color: "#c62828",
   },
 });
