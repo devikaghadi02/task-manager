@@ -116,6 +116,7 @@ export default function HomeScreen() {
   const [showFromPicker, setShowFromPicker] = useState(false);
   const [showToPicker, setShowToPicker] = useState(false);
   const [userModalVisible, setUserModalVisible] = useState(false);
+  const [reassignModalVisible, setReassignModalVisible] = useState(false);
   const [selectedUser, setSelectedUser] = useState("All");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [sortBy, setSortBy] = useState<"dueDate" | "priority" | "created">(
@@ -478,6 +479,23 @@ export default function HomeScreen() {
       exitSelectionMode();
     } catch (e) {
       console.log("Error bulk completing:", e);
+    }
+  };
+
+  const bulkReassign = async (targetUserId: string) => {
+    try {
+      await supabase
+        .from("tasks")
+        .update({ user_id: targetUserId })
+        .in("id", Array.from(selectedIds));
+
+      //refetch since tasksmoved between actions
+      fetchTasks(isAdmin);
+      fetchOverallStats(isAdmin);
+      exitSelectionMode();
+      setReassignModalVisible(false);
+    } catch (e) {
+      console.log("Error bulk reassigning: ", e);
     }
   };
 
@@ -950,6 +968,15 @@ export default function HomeScreen() {
           >
             <Text style={styles.selectionActionText}>Complete</Text>
           </TouchableOpacity>
+          {isAdmin && (
+            <TouchableOpacity
+              style={styles.selectionActionButton}
+              onPress={() => setReassignModalVisible(true)}
+              disabled={selectedIds.size === 0}
+            >
+              <Text style={styles.selectionActionText}>Reassign</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={styles.selectionActionButton}
             onPress={() => {
@@ -1028,6 +1055,51 @@ export default function HomeScreen() {
                     ✓
                   </Text>
                 )}
+              </TouchableOpacity>
+            )}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+
+  const ReassignModal = () => (
+    <Modal
+      visible={reassignModalVisible}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setReassignModalVisible(false)}
+    >
+      <View style={styles.userModalOverlay}>
+        <View
+          style={[
+            styles.userModalSheet,
+            { backgroundColor: colors.background },
+          ]}
+        >
+          <View style={styles.userModalHeader}>
+            <Text style={[styles.userModalTitle, { color: colors.text }]}>
+              Reassign {selectedIds.size} task{selectedIds.size > 1 ? "s" : ""}{" "}
+              to
+            </Text>
+            <TouchableOpacity onPress={() => setReassignModalVisible(false)}>
+              <Text style={styles.userModalClose}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={sections.map((s) => ({ userId: s.userId, name: s.title }))}
+            keyExtractor={(item) => item.userId}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[
+                  styles.userModalRow,
+                  { borderBottomColor: colors.border },
+                ]}
+                onPress={() => bulkReassign(item.userId)}
+              >
+                <Text style={[styles.userModalRowText, { color: colors.text }]}>
+                  {item.name}
+                </Text>
               </TouchableOpacity>
             )}
           />
@@ -1296,6 +1368,7 @@ export default function HomeScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <Sidebar />
         <UserPickerModal />
+        <ReassignModal />
         <View style={styles.header}>
           <View style={styles.titleRow}>
             <TouchableOpacity onPress={openSidebar} style={styles.hamburger}>
@@ -2081,7 +2154,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   dateClear: {
-    paddinghorizontal: 8,
+    paddingHorizontal: 8,
     paddingVertical: 6,
   },
   dateClearText: {

@@ -49,6 +49,33 @@ function formatDateTime(value: unknown): string | null {
   })}`;
 }
 
+const logHistory = async (taskId: string, action: string, detail?: string) => {
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    let actorName = user.email?.split("@")[0] || "Unknown";
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", user.id)
+      .single();
+    if (profile?.full_name) actorName = profile.full_name;
+
+    await supabase.from("task_history").insert({
+      task_id: taskId,
+      action,
+      detail: detail || null,
+      actor_name: actorName,
+      actor_email: user.email,
+    });
+  } catch (e) {
+    console.log("Error logging history:", e);
+  }
+};
+
 export default function DetailsScreen() {
   const params = useLocalSearchParams();
   const id = params.id ? String(params.id) : "";
@@ -66,6 +93,15 @@ export default function DetailsScreen() {
   const [notes, setNotes] = useState(params.notes ? String(params.notes) : "");
   const [savingNotes, setSavingNotes] = useState(false);
   const [notesSaved, setNotesSaved] = useState(true);
+  const [history, setHistory] = useState<
+    {
+      id: string;
+      action: string;
+      detail: string | null;
+      actor_name: String;
+      created_at: string;
+    }[]
+  >([]);
 
   const [taskTitle, setTaskTitle] = useState(
     params.title ? String(params.title) : "",
@@ -144,6 +180,7 @@ export default function DetailsScreen() {
   useFocusEffect(
     useCallback(() => {
       refetchTask();
+      fetchHistory();
     }, [refetchTask]),
   );
 
@@ -156,6 +193,7 @@ export default function DetailsScreen() {
   useEffect(() => {
     fetchProfile();
     fetchSubtasks();
+    fetchHistory();
   }, [userId]);
 
   const fetchProfile = async () => {
@@ -186,6 +224,19 @@ export default function DetailsScreen() {
     }
   };
 
+  const fetchHistory = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("task_history")
+        .select("*")
+        .eq("task_id", String(id))
+        .order("created_at", { ascending: false });
+      if (!error && data) setHistory(data);
+    } catch (e) {
+      console.log("Error fetching history:", e);
+    }
+  };
+
   const fetchAllUsersForPicker = async () => {
     try {
       const { data, error } = await supabase
@@ -204,6 +255,7 @@ export default function DetailsScreen() {
 
   const reassignTask = async (newUserId: string, newUserName: string) => {
     try {
+      const oldUserName = userName;
       const { error } = await supabase
         .from("tasks")
         .update({ user_id: newUserId })
@@ -214,6 +266,11 @@ export default function DetailsScreen() {
       }
       setUserName(newUserName);
       setReassignPickerVisible(false);
+      logHistory(
+        String(id),
+        "reassigned",
+        `from ${oldUserName} to ${newUserName}`,
+      );
     } catch (e) {
       console.log("Error reassigning task: ", e);
     }
@@ -239,6 +296,11 @@ export default function DetailsScreen() {
       setBlockedByTitle(blocker.title);
       setBlockedByCompleted(blocker.completed);
       setDepPickerVisible(false);
+      logHistory(
+        String(id),
+        "dependency added",
+        `blocked by "${blocker.title}"`,
+      );
     } catch (e) {
       console.log("Error setting dependency:", e);
     }
@@ -418,6 +480,7 @@ export default function DetailsScreen() {
       if (error) throw error;
       setIsCompleted(nowCompleted);
       setTaskCompletedAt(newCompletedAt);
+      logHistory(String(id), nowCompleted ? "completed" : "reopened");
     } catch (e: any) {
       Alert.alert("Error", "Failed to update task status.");
     } finally {
@@ -1119,6 +1182,44 @@ export default function DetailsScreen() {
               numberOfLines={4}
               textAlignVertical="top"
             />
+
+            <View style={styles.activitySection}>
+              <Text style={[styles.notesTitle, { color: colors.text }]}>
+                Activity
+              </Text>
+              {history.length === 0 ? (
+                <Text style={[styles.activityEmpty, { color: colors.subtext }]}>
+                  No activity yet.
+                </Text>
+              ) : (
+                history.map((h) => (
+                  <View key={h.id} style={styles.activityRow}>
+                    <View style={styles.activityDot} />
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[styles.activityText, { color: colors.text }]}
+                      >
+                        <Text style={{ fontWeight: "700" }}>
+                          {h.actor_name}
+                        </Text>{" "}
+                        {h.action}
+                        {h.detail ? ` — ${h.detail}` : ""}
+                      </Text>
+                      <Text
+                        style={[styles.activityTime, { color: colors.subtext }]}
+                      >
+                        {new Date(h.created_at).toLocaleString([], {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </Text>
+                    </View>
+                  </View>
+                ))
+              )}
+            </View>
           </View>
         }
       />
@@ -1417,5 +1518,33 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#888",
     fontWeight: "500",
+  },
+  activitySection: {
+    marginTop: 24,
+  },
+  activityEmpty: {
+    fontSize: 13,
+    marginTop: 4,
+  },
+  activityRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 14,
+  },
+  activityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#6200ee",
+    marginTop: 5,
+    marginRight: 10,
+  },
+  activityText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  activityTime: {
+    fontSize: 11,
+    marginTop: 2,
   },
 });
