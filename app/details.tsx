@@ -138,6 +138,8 @@ export default function DetailsScreen() {
     userId: string;
     userName: string;
   } | null>(null);
+  const [rejectNoteVisible, setRejectNoteVisible] = useState(false);
+  const [rejectNote, setRejectNote] = useState("");
 
   const refetchTask = useCallback(async () => {
     if (!id) return;
@@ -560,7 +562,12 @@ export default function DetailsScreen() {
     }
   };
 
-  const rejectTask = async () => {
+  const rejectTask = () => {
+    setRejectNote("");
+    setRejectNoteVisible(true);
+  };
+
+  const confirmReject = async () => {
     setLoading(true);
     try {
       const { error } = await supabase
@@ -571,16 +578,19 @@ export default function DetailsScreen() {
           review_status: "rejected",
         })
         .eq("id", String(id));
-
       if (error) throw error;
       setIsCompleted(false);
       setTaskCompletedAt(null);
       setReviewStatus("rejected");
-      logHistory(String(id), "rejected-sent back to pending");
+      const detail = rejectNote.trim() ? rejectNote.trim() : undefined;
+      logHistory(String(id), "rejected", detail);
+      fetchHistory();
     } catch (e) {
       Alert.alert("Error", "Failed to reject task.");
     } finally {
       setLoading(false);
+      setRejectNoteVisible(false);
+      setRejectNote("");
     }
   };
 
@@ -843,6 +853,63 @@ export default function DetailsScreen() {
               onPress={confirmReassign}
             >
               <Text style={styles.actionButtonText}>Confirm Reassign</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={rejectNoteVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setRejectNoteVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[styles.modalSheet, { backgroundColor: colors.background }]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Rejection Reason
+              </Text>
+              <TouchableOpacity onPress={() => setRejectNoteVisible(false)}>
+                <Text style={styles.modalClose}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+            <Text
+              style={[
+                { color: colors.subtext, fontSize: 13, marginBottom: 12 },
+              ]}
+            >
+              Add on optional reason for rejecting this task
+            </Text>
+            <TextInput
+              style={[
+                styles.depSearchInput,
+                {
+                  backgroundColor: colors.card,
+                  color: colors.text,
+                  borderColor: colors.border,
+                },
+              ]}
+              placeholder="e.g. Needs more detail..."
+              placeholderTextColor={colors.subtext}
+              value={rejectNote}
+              onChangeText={setRejectNote}
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+              autoFocus
+            />
+            <TouchableOpacity
+              style={[
+                styles.actionButton,
+                styles.deleteButton,
+                { marginTop: 16 },
+              ]}
+              onPress={confirmReject}
+            >
+              <Text style={styles.actionButtonText}>Confirm Reject</Text>
             </TouchableOpacity>
           </View>
         </View>
