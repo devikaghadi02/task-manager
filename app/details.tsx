@@ -132,6 +132,12 @@ export default function DetailsScreen() {
     { id: String; full_name: string | null; email: string }[]
   >([]);
   const [reviewStatus, setReviewStatus] = useState<string | null>(null);
+  const [reassignNoteVisible, setReassignNoteVisible] = useState(false);
+  const [reassignNote, setReassignNote] = useState("");
+  const [pendingReassign, setPendingReassign] = useState<{
+    userId: string;
+    userName: string;
+  } | null>(null);
 
   const refetchTask = useCallback(async () => {
     if (!id) return;
@@ -256,25 +262,36 @@ export default function DetailsScreen() {
   };
 
   const reassignTask = async (newUserId: string, newUserName: string) => {
+    setReassignPickerVisible(false);
+    setPendingReassign({ userId: newUserId, userName: newUserName });
+    setReassignNote("");
+    setReassignNoteVisible(true);
+  };
+
+  const confirmReassign = async () => {
+    if (!pendingReassign) return;
+    const oldUserName = userName;
     try {
-      const oldUserName = userName;
       const { error } = await supabase
         .from("tasks")
-        .update({ user_id: newUserId })
+        .update({ user_id: pendingReassign.userId })
         .eq("id", String(id));
       if (error) {
         Alert.alert("Error", error.message);
         return;
       }
-      setUserName(newUserName);
-      setReassignPickerVisible(false);
-      logHistory(
-        String(id),
-        "reassigned",
-        `from ${oldUserName} to ${newUserName}`,
-      );
+      setUserName(pendingReassign.userName);
+      const detail = reassignNote.trim()
+        ? `from ${oldUserName} to ${pendingReassign.userName} — ${reassignNote.trim()}`
+        : `from ${oldUserName} to ${pendingReassign.userName}`;
+      logHistory(String(id), "reassigned", detail);
+      fetchHistory();
     } catch (e) {
-      console.log("Error reassigning task: ", e);
+      console.log("Error reassigning task:", e);
+    } finally {
+      setReassignNoteVisible(false);
+      setPendingReassign(null);
+      setReassignNote("");
     }
   };
 
@@ -769,6 +786,64 @@ export default function DetailsScreen() {
                 </Text>
               }
             />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={reassignNoteVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setReassignNoteVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[styles.modalSheet, { backgroundColor: colors.background }]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Reassignment Note
+              </Text>
+              <TouchableOpacity onPress={() => setReassignNoteVisible(false)}>
+                <Text style={styles.modalClose}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+            <Text
+              style={[
+                { color: colors.subtext, fontSize: 13, marginBottom: 12 },
+              ]}
+            >
+              Add an optional note for reassigning to{" "}
+              {pendingReassign?.userName}
+            </Text>
+            <TextInput
+              style={[
+                styles.depSearchInput,
+                {
+                  backgroundColor: colors.card,
+                  color: colors.text,
+                  borderColor: colors.border,
+                },
+              ]}
+              placeholder="e.g. Alice is on leave..."
+              placeholderTextColor={colors.subtext}
+              value={reassignNote}
+              onChangeText={setReassignNote}
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+              autoFocus
+            />
+            <TouchableOpacity
+              style={[
+                styles.actionButton,
+                styles.completeButton,
+                { marginTop: 16 },
+              ]}
+              onPress={confirmReassign}
+            >
+              <Text style={styles.actionButtonText}>Confirm Reassign</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
