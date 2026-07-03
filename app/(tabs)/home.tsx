@@ -1211,6 +1211,18 @@ export default function HomeScreen() {
                 Employees
               </Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.sidebarItem}
+              onPress={() => {
+                closeSidebar();
+                router.push("/leaves");
+              }}
+            >
+              <Text style={styles.sidebarItemIcon}>🏖️</Text>
+              <Text style={[styles.sidebarItemText, { color: colors.text }]}>
+                Leaves
+              </Text>
+            </TouchableOpacity>
 
             <View
               style={[
