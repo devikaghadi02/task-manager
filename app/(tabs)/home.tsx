@@ -137,6 +137,12 @@ export default function HomeScreen() {
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const sidebarAnim = useRef(new Animated.Value(-280)).current;
+  const [latestAnnouncement, setLatestAnnouncement] = useState<{
+    id: string;
+    title: string;
+    body: string;
+  } | null>(null);
+  const [announcementDismissed, setAnnouncementDismissed] = useState(false);
 
   useEffect(() => {
     getCurrentUser();
@@ -158,6 +164,13 @@ export default function HomeScreen() {
         setUserEmail(user.email || "");
         fetchTasks(admin);
         fetchOverallStats(admin);
+        const { data: ann } = await supabase
+          .from("announcements")
+          .select("id,title, body")
+          .order("cretaed_at", { ascending: false })
+          .limit(1)
+          .single();
+        if (ann) setLatestAnnouncement(ann);
         checkOverdueTasks(admin);
 
         const { data: profile } = await supabase
@@ -960,6 +973,36 @@ export default function HomeScreen() {
       </View>
     ) : null;
 
+  const AnnouncementBanner = () =>
+    latestAnnouncement && !announcementDismissed ? (
+      <TouchableOpacity
+        style={[
+          styles.announcementBanner,
+          { backgroundColor: "#ede7f6", borderColor: "#6200ee" },
+        ]}
+        onPress={() => {
+          router.push("/announcements");
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={styles.announcementTitle}>
+            📢 {latestAnnouncement.title}
+          </Text>
+          <Text style={styles.announcementBody} numberOfLines={1}>
+            {latestAnnouncement.body}
+          </Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => setAnnouncementDismissed(true)}
+          style={{ paddingLeft: 8 }}
+        >
+          <Text style={{ color: "#6200ee", fontSize: 16, fontWeight: "bold" }}>
+            ✕
+          </Text>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    ) : null;
+
   const SelectionBar = () =>
     selectionMode ? (
       <View style={styles.selectionBar}>
@@ -1223,6 +1266,18 @@ export default function HomeScreen() {
                 Leaves
               </Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.sidebarItem}
+              onPress={() => {
+                closeSidebar();
+                router.push("/announcements");
+              }}
+            >
+              <Text style={styles.sidebarItemIcon}>📢</Text>
+              <Text style={[styles.sidebarItemText, { color: colors.text }]}>
+                Announcements
+              </Text>
+            </TouchableOpacity>
 
             <View
               style={[
@@ -1456,6 +1511,7 @@ export default function HomeScreen() {
         {SearchAndFilters}
         <SelectionBar />
         <DueSoonBanner />
+        <AnnouncementBanner />
 
         <FlatList
           data={filteredSections}
@@ -1548,6 +1604,7 @@ export default function HomeScreen() {
       {SearchAndFilters}
       <SelectionBar />
       <DueSoonBanner />
+      <AnnouncementBanner />
 
       <FlatList
         data={filteredTasks}
@@ -2282,5 +2339,13 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "bold",
     color: "#c62828",
+  },
+  announcementBanner: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom:8,
+    flexDirection: "row",
+    alignItems: "center",
   },
 });

@@ -311,7 +311,7 @@ export default function TimelineScreen() {
             numberOfLines={1}
           >
             <Text style={{ fontWeight: "700" }}>{item.userName}</Text>{" "}
-            {meta.verb} "{item.title}"
+            {meta.verb} &quot;{item.title}&quot;
           </Text>
         </View>
         <Text style={[styles.rowTime, { color: colors.subtext }]}>

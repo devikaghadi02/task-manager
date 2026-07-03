@@ -1216,7 +1216,7 @@ export default function DetailsScreen() {
                 {isAdmin ? (
                   <TouchableOpacity onPress={openReassignPicker}>
                     <Text style={[styles.metaValue, styles.metaValueLink]}>
-                      {userName || String(userId).substring(0, 8) + "..."} '
+                      {userName || String(userId).substring(0, 8) + "..."}
                     </Text>
                   </TouchableOpacity>
                 ) : (
