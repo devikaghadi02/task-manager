@@ -1199,6 +1199,19 @@ export default function HomeScreen() {
               </Text>
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={styles.sidebarItem}
+              onPress={() => {
+                closeSidebar();
+                router.push("/employees");
+              }}
+            >
+              <Text style={styles.sidebarItemIcon}>👥</Text>
+              <Text style={[styles.sidebarItemText, { color: colors.text }]}>
+                Employees
+              </Text>
+            </TouchableOpacity>
+
             <View
               style={[
                 styles.sidebarDivider,
