@@ -168,9 +168,8 @@ export default function HomeScreen() {
           .from("announcements")
           .select("id,title, body")
           .order("cretaed_at", { ascending: false })
-          .limit(1)
-          .single();
-        if (ann) setLatestAnnouncement(ann);
+          .limit(1);
+        if (annData && annData.length > 0) setLatestAnnouncement(annData[0]);
         checkOverdueTasks(admin);
 
         const { data: profile } = await supabase
@@ -1278,6 +1277,30 @@ export default function HomeScreen() {
                 Announcements
               </Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.sidebarItem}
+              onPress={() => {
+                closeSidebar();
+                router.push("/documents");
+              }}
+            >
+              <Text style={styles.sidebarItemIcon}>📁</Text>
+              <Text style={[styles.sidebarItemText, { color: colors.text }]}>
+                Documents
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.sidebarItem}
+              onPress={() => {
+                closeSidebar();
+                router.push("/payroll");
+              }}
+            >
+              <Text style={styles.sidebarItemIcon}>💰</Text>
+              <Text style={[styles.sidebarItemText, { color: colors.text }]}>
+                Payroll
+              </Text>
+            </TouchableOpacity>
 
             <View
               style={[
@@ -2344,8 +2367,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 10,
     padding: 12,
-    marginBottom:8,
+    marginBottom: 8,
     flexDirection: "row",
     alignItems: "center",
+  },
+  announcementTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#4a148c",
+    marginBottom: 2,
+  },
+  announcementBody: {
+    fontSize: 12,
+    color: "#6a1b9a",
   },
 });
