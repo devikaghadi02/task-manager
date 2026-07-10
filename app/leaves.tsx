@@ -3,15 +3,15 @@ import { useFocusEffect } from "@react-navigation/native";
 import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-    ActivityIndicator,
-    FlatList,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/ThemeContext";
@@ -31,6 +31,18 @@ type LeaveRequest = {
 
 const LEAVE_TYPES = ["Sick", "Casual", "Earned", "Emergency", "Unpaid"];
 
+type LeavePolicy = {
+  leave_type: string;
+  allowed_days: number;
+};
+
+type LeaveBalance = {
+  type: string;
+  allowed: number;
+  used: number;
+  remaining: number;
+};
+
 export default function LeavesScreen() {
   const { colors } = useTheme();
   const [loading, setLoading] = useState(true);
@@ -47,6 +59,13 @@ export default function LeavesScreen() {
   >(null);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<"pending" | "all">("pending");
+  const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([]);
+  const [policyModalVisible, setPolicyModalVisible] = useState(false);
+  const [policy, setPolicy] = useState<LeavePolicy[]>([]);
+  const [editingPolicy, setEditingPolicy] = useState<{ [key: string]: string }>(
+    {},
+  );
+  const [savingPolicy, setSavingPolicy] = useState(false);
 
   // Apply form state
   const [leaveType, setLeaveType] = useState("Sick");
@@ -66,6 +85,7 @@ export default function LeavesScreen() {
       const admin = user.email === "admin@test.com";
       setIsAdmin(admin);
       setCurrentUserId(user.id);
+      fetchLeaveBalance(user.id, admin);
 
       // Fetch leave requests
       const query = supabase
@@ -106,6 +126,74 @@ export default function LeavesScreen() {
     }
     setLoading(false);
   }, []);
+
+  const fetchLeaveBalance = async (userId: string, isAdminUser: boolean) => {
+    try {
+      // Fetch policy
+      const { data: policyData } = await supabase
+        .from("leave_policy")
+        .select("*");
+
+      if (!policyData) return;
+      setPolicy(policyData);
+
+      if (!isAdminUser) {
+        // Fetch approved leaves for current year for this employee
+        const currentYear = new Date().getFullYear();
+        const { data: approvedLeaves } = await supabase
+          .from("leave_requests")
+          .select("type, from_date, to_date")
+          .eq("employee_id", userId)
+          .eq("status", "approved")
+          .gte("from_date", `${currentYear}-01-01`)
+          .lte("to_date", `${currentYear}-12-31`);
+
+        // Calculate days used per type
+        const usedMap: { [key: string]: number } = {};
+        if (approvedLeaves) {
+          approvedLeaves.forEach((l: any) => {
+            const days = getDays(l.from_date, l.to_date);
+            usedMap[l.type] = (usedMap[l.type] || 0) + days;
+          });
+        }
+
+        const balances: LeaveBalance[] = policyData
+          .filter((p) => p.leave_type !== "Unpaid")
+          .map((p) => ({
+            type: p.leave_type,
+            allowed: p.allowed_days,
+            used: usedMap[p.leave_type] || 0,
+            remaining: Math.max(
+              0,
+              p.allowed_days - (usedMap[p.leave_type] || 0),
+            ),
+          }));
+
+        setLeaveBalances(balances);
+      }
+    } catch (e) {
+      console.log("Error fetching leave balance:", e);
+    }
+  };
+  const savePolicy = async () => {
+    setSavingPolicy(true);
+    try {
+      for (const [type, days] of Object.entries(editingPolicy)) {
+        await supabase
+          .from("leave_policy")
+          .update({
+            allowed_days: parseInt(days) || 0,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("leave_type", type);
+      }
+      await fetchLeaveBalance(currentUserId, isAdmin);
+      setPolicyModalVisible(false);
+    } catch (e) {
+      console.log("Error saving policy:", e);
+    }
+    setSavingPolicy(false);
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -216,6 +304,82 @@ export default function LeavesScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Policy Editor Modal — admin only */}
+      <Modal
+        visible={policyModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPolicyModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[styles.modalSheet, { backgroundColor: colors.background }]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Leave Policy
+              </Text>
+              <TouchableOpacity onPress={() => setPolicyModalVisible(false)}>
+                <Text style={styles.modalClose}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+            <Text
+              style={[
+                { color: colors.subtext, fontSize: 13, marginBottom: 16 },
+              ]}
+            >
+              Set allowed days per leave type per year.
+            </Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {policy.map((p) => (
+                <View key={p.leave_type} style={styles.policyRow}>
+                  <Text style={[styles.policyType, { color: colors.text }]}>
+                    {p.leave_type}
+                  </Text>
+                  <TextInput
+                    style={[
+                      styles.policyInput,
+                      {
+                        backgroundColor: colors.card,
+                        color: colors.text,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                    value={
+                      editingPolicy[p.leave_type] ?? String(p.allowed_days)
+                    }
+                    onChangeText={(v) =>
+                      setEditingPolicy({ ...editingPolicy, [p.leave_type]: v })
+                    }
+                    keyboardType="numeric"
+                  />
+                  <Text
+                    style={[
+                      { color: colors.subtext, fontSize: 13, marginLeft: 8 },
+                    ]}
+                  >
+                    days
+                  </Text>
+                </View>
+              ))}
+              <TouchableOpacity
+                style={[
+                  styles.submitBtn,
+                  savingPolicy && { opacity: 0.6 },
+                  { marginTop: 16 },
+                ]}
+                onPress={savePolicy}
+                disabled={savingPolicy}
+              >
+                <Text style={styles.submitBtnText}>
+                  {savingPolicy ? "Saving..." : "Save Policy"}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Apply Leave Modal */}
       <Modal
         visible={applyModalVisible}
@@ -584,8 +748,56 @@ export default function LeavesScreen() {
             <Text style={styles.applyBtnText}>+ Apply</Text>
           </TouchableOpacity>
         )}
-        {isAdmin && <View style={{ width: 60 }} />}
+        {isAdmin && (
+          <TouchableOpacity
+            style={styles.applyBtn}
+            onPress={() => {
+              setEditingPolicy({});
+              setPolicyModalVisible(true);
+            }}
+          >
+            <Text style={styles.applyBtnText}>Policy</Text>
+          </TouchableOpacity>
+        )}
       </View>
+
+      {/* Leave balance cards — employee only */}
+      {!isAdmin && leaveBalances.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ marginBottom: 16, flexGrow: 0 }}
+        >
+          {leaveBalances.map((b) => (
+            <View
+              key={b.type}
+              style={[
+                styles.balanceCard,
+                { backgroundColor: colors.card },
+                b.remaining === 0 && { borderColor: "#c62828", borderWidth: 1 },
+              ]}
+            >
+              <Text style={[styles.balanceType, { color: colors.subtext }]}>
+                {b.type}
+              </Text>
+              <Text
+                style={[
+                  styles.balanceRemaining,
+                  { color: b.remaining === 0 ? "#c62828" : "#6200ee" },
+                ]}
+              >
+                {b.remaining}
+              </Text>
+              <Text style={[styles.balanceLabel, { color: colors.subtext }]}>
+                remaining
+              </Text>
+              <Text style={[styles.balanceUsed, { color: colors.subtext }]}>
+                {b.used}/{b.allowed} used
+              </Text>
+            </View>
+          ))}
+        </ScrollView>
+      )}
 
       {/* Tabs */}
       <View style={[styles.tabRow, { backgroundColor: colors.card }]}>
@@ -798,4 +1010,47 @@ const styles = StyleSheet.create({
   adminActions: { flexDirection: "row", gap: 12, marginBottom: 16 },
   actionBtn: { flex: 1, padding: 14, borderRadius: 12, alignItems: "center" },
   actionBtnText: { color: "#fff", fontSize: 15, fontWeight: "bold" },
+  policyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  policyType: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  policyInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 15,
+    width: 70,
+    textAlign: "center",
+  },
+  balanceCard: {
+    borderRadius: 12,
+    padding: 14,
+    marginRight: 12,
+    alignItems: "center",
+    minWidth: 90,
+    elevation: 1,
+  },
+  balanceType: {
+    fontSize: 11,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  balanceRemaining: {
+    fontSize: 28,
+    fontWeight: "bold",
+  },
+  balanceLabel: {
+    fontSize: 10,
+    marginBottom: 4,
+  },
+  balanceUsed: {
+    fontSize: 10,
+  },
 });
