@@ -2,15 +2,15 @@ import { useFocusEffect } from "@react-navigation/native";
 import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import {
-    ActivityIndicator,
-    FlatList,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { supabase } from "../lib/supabase";
 import { useTheme } from "../lib/ThemeContext";
@@ -24,6 +24,12 @@ type Employee = {
   designation: string | null;
   joining_date: string | null;
   status: string | null;
+};
+
+type LeaveBalance = {
+  annual: number;
+  sick: number;
+  casual: number;
 };
 
 const DEPARTMENTS = [
@@ -64,6 +70,8 @@ export default function EmployeeScreen() {
   const [editDesignation, setEditDesignation] = useState("");
   const [editJoiningDate, setEditJoiningDate] = useState("");
   const [editStatus, setEditStatus] = useState("active");
+  const [leaveBalance, setLeaveBalance] = useState<LeaveBalance | null>(null);
+  const [loadingBalance, setLoadingBalance] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -87,6 +95,33 @@ export default function EmployeeScreen() {
     setLoading(false);
   }, []);
 
+  const fetchLeaveBalance = async (employeeId: string) => {
+    setLoadingBalance(true);
+    try {
+      const { data, error } = await supabase
+        .from("leave_balances")
+        .select("annual, sick, casual")
+        .eq("user_id", employeeId)
+        .maybeSingle();
+
+      if (!error && data) {
+        setLeaveBalance(data as LeaveBalance);
+      } else {
+        console.log(
+          "Leave balance fetch error:",
+          error,
+          "for employee:",
+          employeeId,
+        );
+        setLeaveBalance(null);
+      }
+    } catch (e) {
+      console.log("Error fetching leave balance:", e);
+      setLeaveBalance(null);
+    }
+    setLoadingBalance(false);
+  };
+
   useFocusEffect(
     useCallback(() => {
       fetchData();
@@ -96,6 +131,7 @@ export default function EmployeeScreen() {
   const openDetail = (emp: Employee) => {
     setSelectedEmployee(emp);
     setDetailModalVisible(true);
+    if (isAdmin) fetchLeaveBalance(emp.id);
   };
 
   const openEdit = (emp: Employee) => {
@@ -273,6 +309,70 @@ export default function EmployeeScreen() {
                     </View>
                   ))}
                 </View>
+
+                {isAdmin && (
+                  <View
+                    style={[
+                      styles.detailCard,
+                      { backgroundColor: colors.card },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.detailLabel,
+                        { color: colors.subtext, marginBottom: 10 },
+                      ]}
+                    >
+                      Leave Balance
+                    </Text>
+                    {loadingBalance ? (
+                      <ActivityIndicator size="small" color="#6200ee" />
+                    ) : leaveBalance ? (
+                      <View
+                        style={{
+                          flexDirection: "row",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        {[
+                          { label: "Annual", value: leaveBalance.annual },
+                          { label: "Sick", value: leaveBalance.sick },
+                          { label: "Casual", value: leaveBalance.casual },
+                        ].map(({ label, value }) => (
+                          <View
+                            key={label}
+                            style={{ alignItems: "center", flex: 1 }}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 22,
+                                fontWeight: "bold",
+                                color: "#6200ee",
+                              }}
+                            >
+                              {value}
+                            </Text>
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                color: colors.subtext,
+                                marginTop: 2,
+                              }}
+                            >
+                              {label}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <Text
+                        style={[styles.detailValue, { color: colors.subtext }]}
+                      >
+                        No balance record
+                      </Text>
+                    )}
+                  </View>
+                )}
 
                 {isAdmin && (
                   <TouchableOpacity
