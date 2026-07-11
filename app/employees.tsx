@@ -1,9 +1,13 @@
 import { useFocusEffect } from "@react-navigation/native";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system";
 import { router } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
+  Linking,
   Modal,
   ScrollView,
   StyleSheet,
@@ -24,6 +28,11 @@ type Employee = {
   designation: string | null;
   joining_date: string | null;
   status: string | null;
+  dob: string | null;
+  role: string | null;
+  aadhar_url: string | null;
+  marksheet_urls: string[] | null;
+  deactivated_at: string | null;
 };
 
 type LeaveBalance = {
@@ -51,6 +60,8 @@ const DESIGNATIONS = [
   "Director",
 ];
 
+const ROLES = ["Employee", "Senior", "Management"];
+
 export default function EmployeeScreen() {
   const { colors } = useTheme();
   const [loading, setLoading] = useState(true);
@@ -72,6 +83,25 @@ export default function EmployeeScreen() {
   const [editStatus, setEditStatus] = useState("active");
   const [leaveBalance, setLeaveBalance] = useState<LeaveBalance | null>(null);
   const [loadingBalance, setLoadingBalance] = useState(false);
+
+  //Add employee form state
+  const [addModalVisible, setAddModalVisible] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addEmail, setAddEmail] = useState("");
+  const [addPhone, setAddPhone] = useState("");
+  const [addDob, setAddDob] = useState("");
+  const [addRole, setAddRole] = useState("Employee");
+  const [addDepartment, setAddDepartment] = useState("");
+  const [addDesignation, setAddDesignation] = useState("");
+  const [addJoiningDate, setAddJoiningDate] = useState("");
+  const [addAadharUrl, setAddAadharUrl] = useState<string | null>(null);
+  const [addAadharName, setAddAadharName] = useState("");
+  const [addMarksheetUrls, setAddMarksheetUrls] = useState<string[]>([]);
+  const [addMarksheetNames, setAddMarksheetNames] = useState<string[]>([]);
+  const [uploadingAadhar, setUploadingAadhar] = useState(false);
+  const [uploadingMarksheet, setUploadingMarksheet] = useState(false);
+  const [addSaving, setAddSaving] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -120,6 +150,219 @@ export default function EmployeeScreen() {
       setLeaveBalance(null);
     }
     setLoadingBalance(false);
+  };
+
+  const uploadFile = async (
+    fileUri: string,
+    fileName: string,
+    mimeType: string,
+    folder: string,
+  ): Promise<string | null> => {
+    try {
+      const fileExt = fileName.split(".").pop();
+      const filePath = `${folder}/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+
+      const base64 = await FileSystem.readAsStringAsync(fileUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const { error } = await supabase.storage
+        .from("employee-documents")
+        .upload(filePath, decode(base64), { contentType: mimeType });
+
+      if (error) {
+        console.log("Upload error:", error);
+        return null;
+      }
+
+      const { data } = supabase.storage
+        .from("employee-documents")
+        .getPublicUrl(filePath);
+
+      return data.publicUrl;
+    } catch (e) {
+      console.log("Upload exception:", e);
+      return null;
+    }
+  };
+
+  const pickAadhar = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["image/jpeg", "image/png", "application/pdf"],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled) return;
+      const file = result.assets[0];
+
+      if (file.size && file.size > 5 * 1024 * 1024) {
+        Alert.alert("File too large", "Aadhar file must be under 5MB.");
+        return;
+      }
+
+      setUploadingAadhar(true);
+      const url = await uploadFile(
+        file.uri,
+        file.name,
+        file.mimeType || "application/pdf",
+        "aadhar",
+      );
+      if (url) {
+        setAddAadharUrl(url);
+        setAddAadharName(file.name);
+      } else {
+        Alert.alert("Upload failed", "Could not upload Aadhar card.");
+      }
+      setUploadingAadhar(false);
+    } catch (e) {
+      console.log("Aadhar pick error:", e);
+      setUploadingAadhar(false);
+    }
+  };
+
+  const pickMarksheet = async () => {
+    if (addMarksheetUrls.length >= 3) {
+      Alert.alert("Limit reached", "Maximum 3 marksheets allowed.");
+      return;
+    }
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["image/jpeg", "image/png", "application/pdf"],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled) return;
+      const file = result.assets[0];
+
+      if (file.size && file.size > 5 * 1024 * 1024) {
+        Alert.alert("File too large", "Marksheet must be under 5MB.");
+        return;
+      }
+
+      setUploadingMarksheet(true);
+      const url = await uploadFile(
+        file.uri,
+        file.name,
+        file.mimeType || "application/pdf",
+        "marksheets",
+      );
+      if (url) {
+        setAddMarksheetUrls((prev) => [...prev, url]);
+        setAddMarksheetNames((prev) => [...prev, file.name]);
+      } else {
+        Alert.alert("Upload failed", "Could not upload marksheet.");
+      }
+      setUploadingMarksheet(false);
+    } catch (e) {
+      console.log("Marksheet pick error:", e);
+      setUploadingMarksheet(false);
+    }
+  };
+
+  const removeMarksheet = (index: number) => {
+    setAddMarksheetUrls((prev) => prev.filter((_, i) => i !== index));
+    setAddMarksheetNames((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const resetAddForm = () => {
+    setAddName("");
+    setAddEmail("");
+    setAddPhone("");
+    setAddDob("");
+    setAddRole("Employee");
+    setAddDepartment("");
+    setAddDesignation("");
+    setAddJoiningDate("");
+    setAddAadharUrl(null);
+    setAddAadharName("");
+    setAddMarksheetUrls([]);
+    setAddMarksheetNames([]);
+  };
+
+  const addEmployee = async () => {
+    if (!addName.trim()) {
+      Alert.alert("Error", "Name is required.");
+      return;
+    }
+    if (!addEmail.trim()) {
+      Alert.alert("Error", "Email is required.");
+      return;
+    }
+
+    setAddSaving(true);
+    try {
+      //Insert into employees table directly (no auth user creation - admin manually adds profile)
+      const { data, error } = await supabase
+        .from("employees")
+        .insert({
+          id: crypto.randomUUID(),
+          full_name: addName.trim(),
+          email: addEmail.trim(),
+          phone: addPhone.trim() || null,
+          dob: addDob.trim() || null,
+          role: addRole,
+          department: addDepartment.trim() || null,
+          designation: addDesignation.trim() || null,
+          joining_date: addJoiningDate.trim() || null,
+          aadhar_url: addAadharUrl || null,
+          marksheet_urls: addMarksheetUrls.length > 0 ? addMarksheetUrls : null,
+          status: "active",
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setEmployees((prev) => [data as Employee, ...prev]);
+        setAddModalVisible(false);
+        resetAddForm();
+      }
+    } catch (e: any) {
+      console.log("Error adding employee:", e);
+      Alert.alert("Error", e.message || "Failed to add employee.");
+    }
+    setAddSaving(false);
+  };
+
+  const deactivateEmployee = async (emp: Employee) => {
+    Alert.alert(
+      emp.deactivated_at ? "Reactivate Employee" : "Deactivate Employee",
+      emp.deactivated_at
+        ? `Reactivate ${emp.full_name}? They will appear in the active list again.`
+        : `Deactivate ${emp.full_name}? Thier data will be kept but they wont appear in the active list.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: emp.deactivated_at ? "Reactivate" : "Deactivate",
+          style: emp.deactivated_at ? "default" : "destructive",
+          onPress: async () => {
+            try {
+              const now = emp.deactivated_at ? null : new Date().toISOString();
+              const newStatus = emp.deactivated_at ? "active" : "inactive";
+              const { error } = await supabase
+                .from("employees")
+                .update({ deactivated_at: now, status: newStatus })
+                .eq("id", emp.id);
+
+              if (error) throw error;
+
+              setEmployees((prev) =>
+                prev.map((e) =>
+                  e.id === emp.id
+                    ? { ...e, deactivated_at: now, status: newStatus }
+                    : e,
+                ),
+              );
+              setDetailModalVisible(false);
+            } catch (e) {
+              console.log("Error deactivating employee:", e);
+            }
+          },
+        },
+      ],
+    );
   };
 
   useFocusEffect(
@@ -188,9 +431,12 @@ export default function EmployeeScreen() {
     const dept = e.department?.toLowerCase() || "";
     const desig = e.designation?.toLowerCase() || "";
     const search = searchText.toLowerCase();
-    return (
-      name.includes(search) || dept.includes(search) || desig.includes(search)
-    );
+    const matchSearch =
+      name.includes(search) || dept.includes(search) || desig.includes(search);
+    const matchActive = showInactive
+      ? e.status === "inactive"
+      : e.status !== "inactive";
+    return matchSearch && matchActive;
   });
 
   const getInitial = (name: string | null) =>
@@ -213,6 +459,307 @@ export default function EmployeeScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Add Employee Modal */}
+      <Modal
+        visible={addModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setAddModalVisible(false);
+          resetAddForm();
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[styles.modalSheet, { backgroundColor: colors.background }]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Add Employee
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setAddModalVisible(false);
+                  resetAddForm();
+                }}
+              >
+                <Text style={styles.modalClose}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={[styles.fieldLabel, { color: colors.subtext }]}>
+                Full Name *
+              </Text>
+              <TextInput
+                style={[
+                  styles.fieldInput,
+                  {
+                    backgroundColor: colors.card,
+                    color: colors.text,
+                    borderColor: colors.border,
+                  },
+                ]}
+                placeholder="Full name"
+                placeholderTextColor={colors.subtext}
+                value={addName}
+                onChangeText={setAddName}
+              />
+
+              <Text style={[styles.fieldLabel, { color: colors.subtext }]}>
+                Email *
+              </Text>
+              <TextInput
+                style={[
+                  styles.fieldInput,
+                  {
+                    backgroundColor: colors.card,
+                    color: colors.text,
+                    borderColor: colors.border,
+                  },
+                ]}
+                placeholder="Email address"
+                placeholderTextColor={colors.subtext}
+                value={addEmail}
+                onChangeText={setAddEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+
+              <Text style={[styles.fieldLabel, { color: colors.subtext }]}>
+                Phone
+              </Text>
+              <TextInput
+                style={[
+                  styles.fieldInput,
+                  {
+                    backgroundColor: colors.card,
+                    color: colors.text,
+                    borderColor: colors.border,
+                  },
+                ]}
+                placeholder="Phone number"
+                placeholderTextColor={colors.subtext}
+                value={addPhone}
+                onChangeText={setAddPhone}
+                keyboardType="phone-pad"
+              />
+
+              <Text style={[styles.fieldLabel, { color: colors.subtext }]}>
+                Date of Birth
+              </Text>
+              <TextInput
+                style={[
+                  styles.fieldInput,
+                  {
+                    backgroundColor: colors.card,
+                    color: colors.text,
+                    borderColor: colors.border,
+                  },
+                ]}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={colors.subtext}
+                value={addDob}
+                onChangeText={setAddDob}
+              />
+
+              <Text style={[styles.fieldLabel, { color: colors.subtext }]}>
+                Role
+              </Text>
+              <View style={{ flexDirection: "row", marginBottom: 16 }}>
+                {ROLES.map((r) => (
+                  <TouchableOpacity
+                    key={r}
+                    style={[
+                      styles.chipOption,
+                      { borderColor: colors.border },
+                      addRole === r && styles.chipOptionActive,
+                    ]}
+                    onPress={() => setAddRole(r)}
+                  >
+                    <Text
+                      style={[
+                        styles.chipOptionText,
+                        { color: addRole === r ? "#fff" : colors.subtext },
+                      ]}
+                    >
+                      {r}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={[styles.fieldLabel, { color: colors.subtext }]}>
+                Department
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginBottom: 16 }}
+              >
+                {DEPARTMENTS.map((dept) => (
+                  <TouchableOpacity
+                    key={dept}
+                    style={[
+                      styles.chipOption,
+                      { borderColor: colors.border },
+                      addDepartment === dept && styles.chipOptionActive,
+                    ]}
+                    onPress={() => setAddDepartment(dept)}
+                  >
+                    <Text
+                      style={[
+                        styles.chipOptionText,
+                        {
+                          color:
+                            addDepartment === dept ? "#fff" : colors.subtext,
+                        },
+                      ]}
+                    >
+                      {dept}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <Text style={[styles.fieldLabel, { color: colors.subtext }]}>
+                Designation
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginBottom: 16 }}
+              >
+                {DESIGNATIONS.map((desig) => (
+                  <TouchableOpacity
+                    key={desig}
+                    style={[
+                      styles.chipOption,
+                      { borderColor: colors.border },
+                      addDesignation === desig && styles.chipOptionActive,
+                    ]}
+                    onPress={() => setAddDesignation(desig)}
+                  >
+                    <Text
+                      style={[
+                        styles.chipOptionText,
+                        {
+                          color:
+                            addDesignation === desig ? "#fff" : colors.subtext,
+                        },
+                      ]}
+                    >
+                      {desig}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <Text style={[styles.fieldLabel, { color: colors.subtext }]}>
+                Joining Date
+              </Text>
+              <TextInput
+                style={[
+                  styles.fieldInput,
+                  {
+                    backgroundColor: colors.card,
+                    color: colors.text,
+                    borderColor: colors.border,
+                  },
+                ]}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={colors.subtext}
+                value={addJoiningDate}
+                onChangeText={setAddJoiningDate}
+              />
+
+              <Text style={[styles.fieldLabel, { color: colors.subtext }]}>
+                Aadhar Card
+              </Text>
+              <TouchableOpacity
+                style={[
+                  styles.uploadBtn,
+                  { borderColor: colors.border, backgroundColor: colors.card },
+                ]}
+                onPress={pickAadhar}
+                disabled={uploadingAadhar}
+              >
+                <Text style={[styles.uploadBtnText, { color: colors.subtext }]}>
+                  {uploadingAadhar
+                    ? "Uploading..."
+                    : addAadharName ||
+                      "📎 Upload Aadhar (JPG/PNG/PDF, max 5MB)"}
+                </Text>
+              </TouchableOpacity>
+              {addAadharUrl && (
+                <Text style={[styles.uploadedTag, { color: "#2e7d32" }]}>
+                  ✓ Uploaded
+                </Text>
+              )}
+
+              <Text
+                style={[
+                  styles.fieldLabel,
+                  { color: colors.subtext, marginTop: 12 },
+                ]}
+              >
+                Marksheets (max 3)
+              </Text>
+              {addMarksheetNames.map((name, i) => (
+                <View key={i} style={styles.marksheetRow}>
+                  <Text
+                    style={[styles.marksheetName, { color: colors.text }]}
+                    numberOfLines={1}
+                  >
+                    📄 {name}
+                  </Text>
+                  <TouchableOpacity onPress={() => removeMarksheet(i)}>
+                    <Text style={{ color: "#c62828", fontWeight: "bold" }}>
+                      ✕
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+              {addMarksheetUrls.length < 3 && (
+                <TouchableOpacity
+                  style={[
+                    styles.uploadBtn,
+                    {
+                      borderColor: colors.border,
+                      backgroundColor: colors.card,
+                    },
+                  ]}
+                  onPress={pickMarksheet}
+                  disabled={uploadingMarksheet}
+                >
+                  <Text
+                    style={[styles.uploadBtnText, { color: colors.subtext }]}
+                  >
+                    {uploadingMarksheet
+                      ? "Uploading..."
+                      : "📎 Add Marksheet (JPG/PNG/PDF, max 5MB)"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity
+                style={[
+                  styles.editBtn,
+                  { backgroundColor: "#6200ee", marginTop: 20 },
+                  addSaving && { opacity: 0.6 },
+                ]}
+                onPress={addEmployee}
+                disabled={addSaving}
+              >
+                <Text style={styles.editBtnText}>
+                  {addSaving ? "Saving..." : "Add Employee"}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Detail Modal */}
       <Modal
         visible={detailModalVisible}
@@ -375,12 +922,84 @@ export default function EmployeeScreen() {
                 )}
 
                 {isAdmin && (
-                  <TouchableOpacity
-                    style={[styles.editBtn, { backgroundColor: "#6200ee" }]}
-                    onPress={() => openEdit(selectedEmployee)}
-                  >
-                    <Text style={styles.editBtnText}>Edit Details</Text>
-                  </TouchableOpacity>
+                  <>
+                    {/*Documents section */}
+                    {(selectedEmployee.aadhar_url ||
+                      (selectedEmployee.marksheet_urls &&
+                        selectedEmployee.marksheet_urls.length > 0)) && (
+                      <View
+                        style={[
+                          styles.detailCard,
+                          { backgroundColor: colors.card },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.detailLabel,
+                            { color: colors.subtext, marginBottom: 10 },
+                          ]}
+                        >
+                          Documents
+                        </Text>
+                        {selectedEmployee.aadhar_url && (
+                          <TouchableOpacity
+                            style={styles.docLink}
+                            onPress={() =>
+                              Linking.openURL(selectedEmployee.aadhar_url!)
+                            }
+                          >
+                            <Text style={styles.docLinkText}> Aadhar cARD</Text>
+                          </TouchableOpacity>
+                        )}
+                        {selectedEmployee.marksheet_urls?.map((url, i) => (
+                          <TouchableOpacity
+                            key={i}
+                            style={styles.docLink}
+                            onPress={() => Linking.openURL(url)}
+                          >
+                            <Text style={styles.docLinkText}>
+                              Marksheet {i + 1}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+
+                    <TouchableOpacity
+                      style={[styles.editBtn, { backgroundColor: "#6200ee" }]}
+                      onPress={() => openEdit(selectedEmployee)}
+                    >
+                      <Text style={styles.editBtnText}>Edit Details</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.editBtn,
+                        {
+                          backgroundColor: selectedEmployee.deactivated_at
+                            ? "#e8f5e9"
+                            : "#ffebee",
+                          marginTop: -8,
+                        },
+                      ]}
+                      onPress={() => deactivateEmployee(selectedEmployee)}
+                    >
+                      <Text
+                        style={[
+                          styles.editBtnText,
+                          {
+                            color: selectedEmployee.deactivated_at
+                              ? "#2e7d32"
+                              : "#c62828",
+                          },
+                        ]}
+                      >
+                        {selectedEmployee.deactivated_at
+                          ? "Reactivate Employee"
+                          : "Deactivate Employee"}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
                 )}
               </ScrollView>
             )}
@@ -561,9 +1180,32 @@ export default function EmployeeScreen() {
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
         <Text style={[styles.title, { color: colors.text }]}>Employees</Text>
-        <Text style={[styles.countText, { color: colors.subtext }]}>
-          {filteredEmployees.length} total
-        </Text>
+        {isAdmin && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <TouchableOpacity
+              style={[
+                styles.filterToggle,
+                { borderColor: showInactive ? "#c62828" : colors.border },
+              ]}
+              onPress={() => setShowInactive(!showInactive)}
+            >
+              <Text
+                style={[
+                  styles.filterToggleText,
+                  { color: showInactive ? "#c62828" : colors.subtext },
+                ]}
+              >
+                {showInactive ? "Inactive" : "Active"}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.addBtn}
+              onPress={() => setAddModalVisible(true)}
+            >
+              <Text style={styles.addBtnText}>+</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       <TextInput
@@ -740,4 +1382,50 @@ const styles = StyleSheet.create({
   chipOptionText: { fontSize: 13, fontWeight: "500" },
   chipOptionTextActive: { color: "#fff", fontWeight: "700" },
   statusRow: { flexDirection: "row", marginBottom: 8 },
+  addBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#6200ee",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  addBtnText: {
+    color: "#fff",
+    fontSize: 24,
+    fontWeight: "bold",
+    lineHeight: 28,
+  },
+  filterToggle: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  filterToggleText: { fontSize: 12, fontWeight: "600" },
+  uploadBtn: {
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderRadius: 10,
+    padding: 14,
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  uploadBtnText: { fontSize: 13 },
+  uploadedTag: { fontSize: 12, fontWeight: "600", marginBottom: 8 },
+  marksheetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  marksheetName: { flex: 1, fontSize: 13, marginRight: 8 },
+  docLink: {
+    paddingVertical: 10,
+    borderBottomWidth: 0.5,
+    borderBottomColor: "#e0e0e0",
+  },
+  docLinkText: { fontSize: 14, color: "#6200ee", fontWeight: "600" },
 });
