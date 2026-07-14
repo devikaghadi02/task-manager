@@ -64,6 +64,8 @@ const DESIGNATIONS = [
 ];
 
 const ROLES = ["Employee", "Senior", "Management"];
+const FIRST_TYPES = ["Degree", "PG", "Diploma"];
+const SECOND_TYPES = ["12th", "10th"];
 
 export default function EmployeeScreen() {
   const { colors } = useTheme();
@@ -100,8 +102,15 @@ export default function EmployeeScreen() {
   const [addJoiningDate, setAddJoiningDate] = useState("");
   const [addAadharUrl, setAddAadharUrl] = useState<string | null>(null);
   const [addAadharName, setAddAadharName] = useState("");
-  const [addMarksheetUrls, setAddMarksheetUrls] = useState<string[]>([]);
-  const [addMarksheetNames, setAddMarksheetNames] = useState<string[]>([]);
+  const [marksheets, setMarksheets] = useState<
+    { type: string; url: string; name: string }[]
+  >([]);
+  const [marksheetStep, setMarksheetStep] = useState<
+    "none" | "first" | "second" | "other"
+  >("first");
+  const [firstType, setFirstType] = useState("");
+  const [secondType, setSecondType] = useState("");
+  const [otherTypeName, setOtherTypeName] = useState("");
   const [uploadingAadhar, setUploadingAadhar] = useState(false);
   const [uploadingMarksheet, setUploadingMarksheet] = useState(false);
   const [addSaving, setAddSaving] = useState(false);
@@ -224,9 +233,25 @@ export default function EmployeeScreen() {
     }
   };
 
-  const pickMarksheet = async () => {
-    if (addMarksheetUrls.length >= 3) {
+  const MARKSHEET_TYPES = [
+    "10th Marksheet",
+    "12th Marksheet",
+    "Degree Marksheet",
+    "PG Marksheet",
+    "Diploma",
+    "Other Certificate",
+  ];
+
+  const pickMarksheet = async (sheetType: string) => {
+    if (marksheets.length >= 3) {
       Alert.alert("Limit reached", "Maximum 3 marksheets allowed.");
+      return;
+    }
+    if (marksheets.find((m) => m.type === sheetType)) {
+      Alert.alert(
+        "Already uploaded",
+        `${sheetType} is already uploaded. Remove it first to replace.`,
+      );
       return;
     }
     try {
@@ -251,8 +276,15 @@ export default function EmployeeScreen() {
         "marksheets",
       );
       if (url) {
-        setAddMarksheetUrls((prev) => [...prev, url]);
-        setAddMarksheetNames((prev) => [...prev, file.name]);
+        setMarksheets((prev) => [
+          ...prev,
+          { type: sheetType, url, name: file.name },
+        ]);
+        if (FIRST_TYPES.includes(sheetType)) {
+          setFirstType("");
+        } else if (SECOND_TYPES.includes(sheetType)) {
+          setSecondType("");
+        }
       } else {
         Alert.alert("Upload failed", "Could not upload marksheet.");
       }
@@ -264,8 +296,7 @@ export default function EmployeeScreen() {
   };
 
   const removeMarksheet = (index: number) => {
-    setAddMarksheetUrls((prev) => prev.filter((_, i) => i !== index));
-    setAddMarksheetNames((prev) => prev.filter((_, i) => i !== index));
+    setMarksheets((prev) => prev.filter((_, i) => i !== index));
   };
 
   const resetAddForm = () => {
@@ -279,8 +310,11 @@ export default function EmployeeScreen() {
     setAddJoiningDate("");
     setAddAadharUrl(null);
     setAddAadharName("");
-    setAddMarksheetUrls([]);
-    setAddMarksheetNames([]);
+    setMarksheets([]);
+    setMarksheetStep("first");
+    setFirstType("");
+    setSecondType("");
+    setOtherTypeName("");
   };
 
   const addEmployee = async () => {
@@ -309,7 +343,8 @@ export default function EmployeeScreen() {
           designation: addDesignation.trim() || null,
           joining_date: addJoiningDate.trim() || null,
           aadhar_url: addAadharUrl || null,
-          marksheet_urls: addMarksheetUrls.length > 0 ? addMarksheetUrls : null,
+          marksheet_urls:
+            marksheets.length > 0 ? marksheets.map((m) => m.url) : null,
           status: "active",
         })
         .select()
@@ -679,51 +714,38 @@ export default function EmployeeScreen() {
               <Text style={[styles.fieldLabel, { color: colors.subtext }]}>
                 Aadhar Card
               </Text>
-              <TouchableOpacity
-                style={[
-                  styles.uploadBtn,
-                  { borderColor: colors.border, backgroundColor: colors.card },
-                ]}
-                onPress={pickAadhar}
-                disabled={uploadingAadhar}
-              >
-                <Text style={[styles.uploadBtnText, { color: colors.subtext }]}>
-                  {uploadingAadhar
-                    ? "Uploading..."
-                    : addAadharName ||
-                      "📎 Upload Aadhar (JPG/PNG/PDF, max 5MB)"}
-                </Text>
-              </TouchableOpacity>
-              {addAadharUrl && (
-                <Text style={[styles.uploadedTag, { color: "#2e7d32" }]}>
-                  ✓ Uploaded
-                </Text>
-              )}
-
-              <Text
-                style={[
-                  styles.fieldLabel,
-                  { color: colors.subtext, marginTop: 12 },
-                ]}
-              >
-                Marksheets (max 3)
-              </Text>
-              {addMarksheetNames.map((name, i) => (
-                <View key={i} style={styles.marksheetRow}>
-                  <Text
-                    style={[styles.marksheetName, { color: colors.text }]}
-                    numberOfLines={1}
+              {addAadharUrl ? (
+                <View style={styles.uploadedFileRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.uploadedFileBtn,
+                      { backgroundColor: colors.card, borderColor: "#2e7d32" },
+                    ]}
+                    onPress={() => Linking.openURL(addAadharUrl!)}
                   >
-                    📄 {name}
-                  </Text>
-                  <TouchableOpacity onPress={() => removeMarksheet(i)}>
-                    <Text style={{ color: "#c62828", fontWeight: "bold" }}>
+                    <Text style={[styles.uploadBtnText, { color: "#2e7d32" }]}>
+                      ✓ {addAadharName} — tap to view
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setAddAadharUrl(null);
+                      setAddAadharName("");
+                    }}
+                    style={{ marginLeft: 8 }}
+                  >
+                    <Text
+                      style={{
+                        color: "#c62828",
+                        fontWeight: "bold",
+                        fontSize: 16,
+                      }}
+                    >
                       ✕
                     </Text>
                   </TouchableOpacity>
                 </View>
-              ))}
-              {addMarksheetUrls.length < 3 && (
+              ) : (
                 <TouchableOpacity
                   style={[
                     styles.uploadBtn,
@@ -732,17 +754,270 @@ export default function EmployeeScreen() {
                       backgroundColor: colors.card,
                     },
                   ]}
-                  onPress={pickMarksheet}
-                  disabled={uploadingMarksheet}
+                  onPress={pickAadhar}
+                  disabled={uploadingAadhar}
                 >
                   <Text
                     style={[styles.uploadBtnText, { color: colors.subtext }]}
                   >
-                    {uploadingMarksheet
+                    {uploadingAadhar
                       ? "Uploading..."
-                      : "📎 Add Marksheet (JPG/PNG/PDF, max 5MB)"}
+                      : "📎 Upload Aadhar (JPG/PNG/PDF, max 5MB)"}
                   </Text>
                 </TouchableOpacity>
+              )}
+
+              <Text
+                style={[
+                  styles.fieldLabel,
+                  { color: colors.subtext, marginTop: 12 },
+                ]}
+              >
+                Marksheets
+              </Text>
+
+              {/* Already uploaded marksheets */}
+              {marksheets.map((m, i) => (
+                <View key={i} style={styles.uploadedFileRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.uploadedFileBtn,
+                      { backgroundColor: colors.card, borderColor: "#2e7d32" },
+                    ]}
+                    onPress={() => Linking.openURL(m.url)}
+                  >
+                    <Text
+                      style={[styles.uploadBtnText, { color: "#2e7d32" }]}
+                      numberOfLines={1}
+                    >
+                      ✓ {m.type} — tap to view
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => removeMarksheet(i)}
+                    style={{ marginLeft: 8 }}
+                  >
+                    <Text
+                      style={{
+                        color: "#c62828",
+                        fontWeight: "bold",
+                        fontSize: 16,
+                      }}
+                    >
+                      ✕
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+
+              {/* Step 1 — First dropdown (Degree/PG/Diploma) */}
+              {marksheetStep === "first" &&
+                !marksheets.find((m) => FIRST_TYPES.includes(m.type)) && (
+                  <View
+                    style={[
+                      styles.dropdownBox,
+                      {
+                        borderColor: colors.border,
+                        backgroundColor: colors.card,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.dropdownLabel, { color: colors.subtext }]}
+                    >
+                      Select type
+                    </Text>
+                    <View style={styles.dropdownChips}>
+                      {FIRST_TYPES.map((t) => (
+                        <TouchableOpacity
+                          key={t}
+                          style={[
+                            styles.chipOption,
+                            { borderColor: colors.border },
+                            firstType === t && styles.chipOptionActive,
+                          ]}
+                          onPress={() => setFirstType(t)}
+                        >
+                          <Text
+                            style={[
+                              styles.chipOptionText,
+                              {
+                                color:
+                                  firstType === t ? "#fff" : colors.subtext,
+                              },
+                            ]}
+                          >
+                            {t}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    {firstType !== "" && (
+                      <TouchableOpacity
+                        style={[
+                          styles.uploadBtn,
+                          {
+                            borderColor: "#6200ee",
+                            marginTop: 10,
+                            marginBottom: 0,
+                          },
+                        ]}
+                        onPress={() => pickMarksheet(firstType)}
+                        disabled={uploadingMarksheet}
+                      >
+                        <Text
+                          style={[styles.uploadBtnText, { color: "#6200ee" }]}
+                        >
+                          {uploadingMarksheet
+                            ? "Uploading..."
+                            : `📎 Upload ${firstType} Marksheet`}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+
+              {/* + Add More button — appears after first upload */}
+              {marksheets.length === 1 && marksheetStep === "first" && (
+                <TouchableOpacity
+                  style={styles.addMoreBtn}
+                  onPress={() => {
+                    setMarksheetStep("second");
+                    setSecondType("");
+                  }}
+                >
+                  <Text style={styles.addMoreBtnText}>+ Add More</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Step 2 — Second dropdown (10th/12th) */}
+              {marksheetStep === "second" && (
+                <View
+                  style={[
+                    styles.dropdownBox,
+                    {
+                      borderColor: colors.border,
+                      backgroundColor: colors.card,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[styles.dropdownLabel, { color: colors.subtext }]}
+                  >
+                    Select type
+                  </Text>
+                  <View style={styles.dropdownChips}>
+                    {SECOND_TYPES.map((t) => (
+                      <TouchableOpacity
+                        key={t}
+                        style={[
+                          styles.chipOption,
+                          { borderColor: colors.border },
+                          secondType === t && styles.chipOptionActive,
+                        ]}
+                        onPress={() => setSecondType(t)}
+                      >
+                        <Text
+                          style={[
+                            styles.chipOptionText,
+                            {
+                              color: secondType === t ? "#fff" : colors.subtext,
+                            },
+                          ]}
+                        >
+                          {t}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {secondType !== "" && (
+                    <TouchableOpacity
+                      style={[
+                        styles.uploadBtn,
+                        {
+                          borderColor: "#6200ee",
+                          marginTop: 10,
+                          marginBottom: 0,
+                        },
+                      ]}
+                      onPress={() => pickMarksheet(secondType)}
+                      disabled={uploadingMarksheet}
+                    >
+                      <Text
+                        style={[styles.uploadBtnText, { color: "#6200ee" }]}
+                      >
+                        {uploadingMarksheet
+                          ? "Uploading..."
+                          : `📎 Upload ${secondType} Marksheet`}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
+              {/* + Add Other button — appears after second upload */}
+              {marksheets.length === 2 && marksheetStep === "second" && (
+                <TouchableOpacity
+                  style={styles.addMoreBtn}
+                  onPress={() => {
+                    setMarksheetStep("other");
+                    setOtherTypeName("");
+                  }}
+                >
+                  <Text style={styles.addMoreBtnText}>+ Add Other</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Step 3 — Custom name input */}
+              {marksheetStep === "other" && (
+                <View
+                  style={[
+                    styles.dropdownBox,
+                    {
+                      borderColor: colors.border,
+                      backgroundColor: colors.card,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[styles.dropdownLabel, { color: colors.subtext }]}
+                  >
+                    Document name
+                  </Text>
+                  <TextInput
+                    style={[
+                      styles.fieldInput,
+                      {
+                        backgroundColor: colors.background,
+                        color: colors.text,
+                        borderColor: colors.border,
+                        marginBottom: 8,
+                      },
+                    ]}
+                    placeholder="e.g. MBA Certificate, Diploma..."
+                    placeholderTextColor={colors.subtext}
+                    value={otherTypeName}
+                    onChangeText={setOtherTypeName}
+                  />
+                  {otherTypeName.trim() !== "" && (
+                    <TouchableOpacity
+                      style={[
+                        styles.uploadBtn,
+                        { borderColor: "#6200ee", marginBottom: 0 },
+                      ]}
+                      onPress={() => pickMarksheet(otherTypeName.trim())}
+                      disabled={uploadingMarksheet}
+                    >
+                      <Text
+                        style={[styles.uploadBtnText, { color: "#6200ee" }]}
+                      >
+                        {uploadingMarksheet
+                          ? "Uploading..."
+                          : `📎 Upload ${otherTypeName.trim()}`}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               )}
 
               <TouchableOpacity
@@ -1431,4 +1706,45 @@ const styles = StyleSheet.create({
     borderBottomColor: "#e0e0e0",
   },
   docLinkText: { fontSize: 14, color: "#6200ee", fontWeight: "600" },
+  uploadedFileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  uploadedFileBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+  },
+  dropdownBox: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  dropdownLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 10,
+  },
+  dropdownChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  addMoreBtn: {
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#6200ee",
+    borderRadius: 10,
+    padding: 12,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  addMoreBtnText: {
+    color: "#6200ee",
+    fontWeight: "600",
+    fontSize: 12,
+  },
 });
