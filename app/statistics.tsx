@@ -37,6 +37,13 @@ export default function StatisticsScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [userStats, setUserStats] = useState<UserStat[]>([]);
+  const [deptStats, setDeptStats] = useState<
+    {
+      department: string;
+      total: number;
+      completed: number;
+    }[]
+  >([]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -60,6 +67,46 @@ export default function StatisticsScreen() {
 
       if (!error && data) {
         setTasks(data as Task[]);
+
+        if (admin) {
+          // Fetch department breakdown from employees + tasks
+          const { data: emps } = await supabase
+            .from("employees")
+            .select("id, department")
+            .neq("email", "admin@test.com");
+
+          if (emps) {
+            // Map employee id → department
+            const empDeptMap: { [key: string]: string } = {};
+            emps.forEach((e: any) => {
+              if (e.department) empDeptMap[e.id] = e.department;
+            });
+
+            // Fetch all tasks
+            const { data: allTasks } = await supabase
+              .from("tasks")
+              .select("user_id, completed");
+
+            if (allTasks) {
+              const deptMap: {
+                [key: string]: { total: number; completed: number };
+              } = {};
+              allTasks.forEach((t: any) => {
+                const dept = empDeptMap[t.user_id];
+                if (!dept) return;
+                if (!deptMap[dept]) deptMap[dept] = { total: 0, completed: 0 };
+                deptMap[dept].total++;
+                if (t.completed) deptMap[dept].completed++;
+              });
+
+              const stats = Object.entries(deptMap)
+                .map(([department, s]) => ({ department, ...s }))
+                .sort((a, b) => b.total - a.total);
+
+              setDeptStats(stats);
+            }
+          }
+        }
 
         if (admin) {
           // Build per-user stats
@@ -544,6 +591,59 @@ export default function StatisticsScreen() {
           </Text>
         )}
       </View>
+
+      {/* Department breakdown - admin only */}
+      {isAdmin && deptStats.length > 0 && (
+        <View style={[styles.card, { backgroundColor: colors.card }]}>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>
+            By Department
+          </Text>
+          {deptStats.map((d) => {
+            const pct =
+              d.total > 0 ? Math.round((d.completed / d.total) * 100) : 0;
+            return (
+              <View key={d.department} style={styles.categoryRow}>
+                <View style={styles.categoryLabelRow}>
+                  <View
+                    style={[
+                      styles.categoryDot,
+                      ,
+                      { backgroundColor: "#6200ee" },
+                    ]}
+                  />
+                  <Text
+                    style={[styles.categoryName, { color: colors.text }]}
+                    numberOfLines={1}
+                  >
+                    {d.department}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.categoryCount,
+                      { color: colors.subtext },
+                    ]}
+                  >
+                    {d.completed}/{d.total} . {pct}%
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.categoryBarTrack,
+                    { backgroundColor: colors.border },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.categoryBarFill,
+                      { width: `${pct}%`, backgroundColor: "#6200ee" },
+                    ]}
+                  />
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      )}
 
       <View style={{ height: 40 }} />
     </ScrollView>
