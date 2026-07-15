@@ -79,6 +79,14 @@ export default function EmployeeScreen() {
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [employeePayroll, setEmployeePayroll] = useState<
+    {
+      month: number;
+      year: number;
+      net_salary: number;
+    }[]
+  >([]);
+  const [loadingPayroll, setLoadingPayroll] = useState(false);
 
   // Edit form state
   const [editPhone, setEditPhone] = useState("");
@@ -128,6 +136,7 @@ export default function EmployeeScreen() {
       const { data, error } = await supabase
         .from("employees")
         .select("*")
+        .neq("email", "admin@test.com")
         .order("full_name", { ascending: true });
 
       if (!error && data) setEmployees(data as Employee[]);
@@ -140,28 +149,78 @@ export default function EmployeeScreen() {
   const fetchLeaveBalance = async (employeeId: string) => {
     setLoadingBalance(true);
     try {
-      const { data, error } = await supabase
-        .from("leave_balances")
-        .select("annual, sick, casual")
-        .eq("user_id", employeeId)
-        .maybeSingle();
+      //fetch policy
+      const { data: policyData } = await supabase
+        .from("leave_policy")
+        .select("leave_type, allowed_days")
+        .in("leave_type", ["Sick", "Casual", "Earned"]);
 
-      if (!error && data) {
-        setLeaveBalance(data as LeaveBalance);
-      } else {
-        console.log(
-          "Leave balance fetch error:",
-          error,
-          "for employee:",
-          employeeId,
-        );
+      //fetch approved leaves this year
+      const currentYear = new Date().getFullYear();
+      const { data: approvedLeaves } = await supabase
+        .from("leave_requests")
+        .select("type, from_date, to_date")
+        .eq("employee_id", employeeId)
+        .eq("status", "approved")
+        .gte("from_date", `${currentYear}-01-01`)
+        .lte("to_date", `${currentYear}-12-31`);
+
+      if (!policyData) {
         setLeaveBalance(null);
+        setLoadingBalance(false);
+        return;
       }
+
+      //Calculate days used per type
+      const usedMap: { [key: string]: number } = {};
+      if (approvedLeaves) {
+        approvedLeaves.forEach((l: any) => {
+          const diff =
+            new Date(l.to_date).getTime() - new Date(l.from_date).getTime();
+          const days = Math.floor(diff / (1000 * 60 * 60 * 24)) + 1;
+          usedMap[l.type] = (usedMap[l.type] || 0) + days;
+        });
+      }
+      const sick = policyData.find((p) => p.leave_type === "Sick");
+      const casual = policyData.find((p) => p.leave_type === "Casual");
+      const earned = policyData.find((p) => p.leave_type === "Earned");
+
+      setLeaveBalance({
+        sick: Math.max(0, (sick?.allowed_days || 12) - (usedMap["Sick"] || 0)),
+        casual: Math.max(
+          0,
+          (casual?.allowed_days || 12) - (usedMap["Casual"] || 0),
+        ),
+        annual: Math.max(
+          0,
+          (earned?.allowed_days || 15) - (usedMap["Earned"] || 0),
+        ),
+      });
     } catch (e) {
       console.log("Error fetching leave balance:", e);
       setLeaveBalance(null);
     }
     setLoadingBalance(false);
+  };
+
+  const fetchEmployeePayroll = async (employeeId: string) => {
+    setLoadingPayroll(true);
+    try {
+      const { data, error } = await supabase
+        .from("payroll")
+        .select("month, year, net_salary")
+        .eq("employee_id", employeeId)
+        .order("year", { ascending: false })
+        .order("month", { ascending: false })
+        .limit(3);
+
+      if (!error && data) setEmployeePayroll(data);
+      else setEmployeePayroll([]);
+    } catch (e) {
+      console.log("Error fetching payroll:", e);
+      setEmployeePayroll([]);
+    }
+    setLoadingPayroll(false);
   };
 
   const uploadFile = async (
@@ -412,7 +471,10 @@ export default function EmployeeScreen() {
   const openDetail = (emp: Employee) => {
     setSelectedEmployee(emp);
     setDetailModalVisible(true);
-    if (isAdmin) fetchLeaveBalance(emp.id);
+    if (isAdmin) {
+      fetchLeaveBalance(emp.id);
+      fetchEmployeePayroll(emp.id);
+    }
   };
 
   const openEdit = (emp: Employee) => {
@@ -1160,7 +1222,7 @@ export default function EmployeeScreen() {
                         }}
                       >
                         {[
-                          { label: "Annual", value: leaveBalance.annual },
+                          { label: "Earned", value: leaveBalance.annual },
                           { label: "Sick", value: leaveBalance.sick },
                           { label: "Casual", value: leaveBalance.casual },
                         ].map(({ label, value }) => (
@@ -1194,6 +1256,73 @@ export default function EmployeeScreen() {
                         style={[styles.detailValue, { color: colors.subtext }]}
                       >
                         No balance record
+                      </Text>
+                    )}
+                  </View>
+                )}
+
+                {isAdmin && (
+                  <View
+                    style={[
+                      styles.detailCard,
+                      { backgroundColor: colors.card },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.detailLabel,
+                        { color: colors.subtext, marginBottom: 10 },
+                      ]}
+                    >
+                      Recent Payroll
+                    </Text>
+                    {loadingPayroll ? (
+                      <ActivityIndicator size="small" color="#6200ee" />
+                    ) : employeePayroll.length > 0 ? (
+                      employeePayroll.map((p, i) => (
+                        <View
+                          key={i}
+                          style={[
+                            styles.detailRow,
+                            { borderBottomColor: colors.border },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.detailLabel,
+                              { color: colors.subtext },
+                            ]}
+                          >
+                            {
+                              [
+                                "Jan",
+                                "Feb",
+                                "Mar",
+                                "Apr",
+                                "May",
+                                "Jun",
+                                "Jul",
+                                "Aug",
+                                "Sep",
+                                "Oct",
+                                "Nov",
+                                "Dec",
+                              ][p.month - 1]
+                            }{" "}
+                            {p.year}
+                          </Text>
+                          <Text
+                            style={[styles.detailValue, { color: "#6200ee" }]}
+                          >
+                            ₹{p.net_salary.toLocaleString("en-IN")}
+                          </Text>
+                        </View>
+                      ))
+                    ) : (
+                      <Text
+                        style={[styles.detailValue, { color: colors.subtext }]}
+                      >
+                        No payroll records
                       </Text>
                     )}
                   </View>
